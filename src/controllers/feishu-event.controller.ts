@@ -131,7 +131,8 @@ export class FeishuEventController {
 
     // ===== 执行主流程 =====
     try {
-      const result = await orchestratorService.execute(rawText);
+      const openId = body.event?.sender?.sender_id?.open_id?.trim();
+      const result = await orchestratorService.execute(rawText, openId ? { userId: openId } : undefined);
       const replyContent = this.buildResultMessage(result);
       await feishuMessageService.replyText(messageId, replyContent);
       log.info('结果消息回复成功');

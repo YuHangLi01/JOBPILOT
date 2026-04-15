@@ -1,6 +1,7 @@
 import { getLLMClient } from '../integrations/llm/client';
 import { buildInterviewPrompt } from '../prompts/interview.prompt';
 import { InterviewQuestionsSchema } from '../types';
+import type { LightMemoryPromptContext } from '../prompts/light-memory.prompt';
 import type { JDParsed, InterviewQuestion } from '../types';
 import { createLogger } from '../utils/logger';
 
@@ -13,10 +14,10 @@ const log = createLogger('InterviewGen');
 export class InterviewGeneratorService {
   private llm = getLLMClient();
 
-  async generate(jdParsed: JDParsed): Promise<InterviewQuestion[]> {
+  async generate(jdParsed: JDParsed, memory?: LightMemoryPromptContext | null): Promise<InterviewQuestion[]> {
     log.info('开始生成面试题...');
 
-    const prompt = buildInterviewPrompt(jdParsed);
+    const prompt = buildInterviewPrompt(jdParsed, memory);
 
     const result = await this.llm.chatJSON<{ questions: InterviewQuestion[] }>(
       [{ role: 'user', content: prompt }],

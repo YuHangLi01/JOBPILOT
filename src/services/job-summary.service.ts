@@ -1,6 +1,7 @@
 import { getLLMClient } from '../integrations/llm/client';
 import { buildSummaryPrompt } from '../prompts/summary.prompt';
 import { JobSummarySchema } from '../types';
+import type { LightMemoryPromptContext } from '../prompts/light-memory.prompt';
 import type { JDParsed } from '../types';
 import { createLogger } from '../utils/logger';
 
@@ -13,10 +14,10 @@ const log = createLogger('JobSummary');
 export class JobSummaryService {
   private llm = getLLMClient();
 
-  async summarize(jdParsed: JDParsed): Promise<string> {
+  async summarize(jdParsed: JDParsed, memory?: LightMemoryPromptContext | null): Promise<string> {
     log.info('开始生成岗位总结...');
 
-    const prompt = buildSummaryPrompt(jdParsed);
+    const prompt = buildSummaryPrompt(jdParsed, memory);
 
     const result = await this.llm.chatJSON<{ summary: string }>(
       [{ role: 'user', content: prompt }],

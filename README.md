@@ -7,6 +7,8 @@
 - **聊天即触发**：在飞书对话中发送一段 JD，即可自动启动完整分析流程
 - **LLM 编排引擎**：多步骤 Prompt 分离设计，结构化解析 → 总结 → 简历建议 → 面试题
 - **飞书生态打通**：多维表格记录、任务创建、文档生成一步到位
+- **轻量求职记忆（可选）**：基于飞书多维表格的画像 / 岗位过程 / 周期摘要，让输出更连续；未配置或失败时自动降级
+- **多维表格自动补列**：主业务台账表与三张记忆表在写入/检索前对齐列结构，缺列则调用飞书 API 创建，避免因缺列整链失败
 - **优雅降级**：任一外部调用失败不影响主流程，用户始终获得最大可用结果
 - **比赛就绪**：清晰的工程结构、完整类型定义、模块化设计，适合答辩展示
 
@@ -15,13 +17,52 @@
 | 功能 | 描述 |
 |------|------|
 | JD 结构化解析 | 提取公司、岗位、职责、要求、技能等字段 |
-| 岗位要求总结 | 100~200 字精炼总结，一目了然 |
-| 简历修改建议 | 5~8 条针对性建议，可直接行动 |
-| 面试题预测 | 3 道高概率面试题 + 出题意图 + 回答要点 |
-| 多维表格写入 | 岗位信息自动存入飞书 Bitable，形成求职台账 |
+| 岗位要求总结 | 100~200 字精炼总结；可结合用户记忆做轻微个性化 |
+| 简历修改建议 | 5~8 条可执行建议；可结合历史缺口与画像薄弱项 |
+| 面试题预测 | 3 道高概率面试题 + 出题意图 + 回答要点；可结合记忆约束表述 |
+| 主业务多维表格 | 每次写入前按 `BITABLE_FIELD_MAP` 自动补列后新增一行求职台账 |
+| 轻量记忆（三张表） | `user_profile` / `job_records` / `memory_summary`；读写在检索/写入前自动补列 |
 | 跟进任务创建 | 自动创建带截止时间的飞书任务 |
 | 面试准备文档 | 自动生成结构化文档并返回链接 |
 | 结果消息回传 | 将全部结果以清晰格式推送到聊天 |
+
+## 🔔 功能触发说明（答辩 / Demo 必读）
+
+以下说明**谁在什么条件下触发**，便于对照代码与现场演示。
+
+### 1. 飞书聊天里分析 JD（主流程）
+
+| 步骤 | 触发条件 | 行为 |
+|------|----------|------|
+| 收到消息 | 飞书事件 `im.message.receive_v1`，且消息为文本、内容通过长度校验 | `FeishuEventController` 异步处理 |
+| 执行编排 | 上述校验通过后 | `orchestratorService.execute(jdText, { userId })`，`userId` 为发送者 `open_id`（有则传，无则等价旧版） |
+| 拉取记忆 | `userId` 非空 **且** `.env` 中三张记忆表 ID 均已配置 | `memoryService.getMemoryContextForJobAnalysis`；否则不读记忆 |
+| LLM 并行 | JD 解析完成后 | 岗位总结、简历建议、面试题并行调用；若存在记忆则注入 `LightMemoryPromptContext` |
+| 写主业务表 | 编排阶段 3，与其它飞书写入并行 | `feishuBitableService.addRecord` → **写入前**按 `BITABLE_MAIN_SCHEMA` 自动补列 |
+| 写记忆表 | 同上阶段 3，且 `userId` 非空 **且** 记忆表已配置 | `persistJobMemory` → `refreshAfterJobProcessing`（岗位记录 + rolling 摘要 + 活跃时间）；失败仅打日志 |
+| 回复用户 | 编排完成后 | 拼装文本回复（含多维表格/任务/文档状态） |
+
+### 2. 主业务多维表格「自动补列」
+
+| 触发点 | 条件 | 行为 |
+|--------|------|------|
+| `addRecord` / `addRecords` | 每次向 `FEISHU_BITABLE_APP_TOKEN` + `FEISHU_BITABLE_TABLE_ID` 写入 | 先 `list` 字段，再对 `BITABLE_FIELD_MAP` 中缺失的中文列名调用「新增字段」API；`创建时间` 列为日期类型，其余默认文本 |
+| 失败策略 | 无建列权限或 API 报错 | 打 `warn`，不抛错到业务外层；后续写入仍可能失败，由原有 `writeBitable` try/catch 标记失败 |
+
+### 3. 记忆三张表「自动补列」
+
+| 触发点 | 条件 | 行为 |
+|--------|------|------|
+| 记忆表检索 / 写入 | 任意使用 `searchRecordsInTable` / `createRecordInTable` / `updateRecordInTable` 且传入对应 `MEMORY_*_SCHEMA` | 写入/检索前对齐该表全部约定列（见 `constants/index.ts`） |
+| 标签类数组 | 写入记忆表 | `encodeMemoryFields(..., { joinArrayValues: true })` 将 `string[]` 拼为「、」文本，兼容自动创建的文本列；读出时 `readStringArray` 同时兼容多选控件与纯文本 |
+
+### 4. 本地 HTTP 调试（不经飞书事件）
+
+| 触发 | 条件 | 行为 |
+|------|------|------|
+| `POST /api/test/analyze` | 请求体带 `jd_text` | 调用编排器；**不传** `userId`，故不会走记忆读写（与飞书链路区分） |
+
+---
 
 ## 🏗️ 项目结构
 
@@ -38,7 +79,7 @@ jobpilot-feishu/
     ├── config/
     │   └── index.ts         # 统一配置管理
     ├── constants/
-    │   └── index.ts         # 业务常量
+    │   └── index.ts         # 业务常量、多维表格列映射与 SCHEMA（主表 + 记忆表）
     ├── types/
     │   └── index.ts         # TypeScript 类型 + Zod Schema
     ├── routes/
@@ -46,29 +87,34 @@ jobpilot-feishu/
     ├── controllers/
     │   └── feishu-event.controller.ts  # 飞书事件处理
     ├── services/
-    │   ├── orchestrator.service.ts      # ⭐ 工作流编排器
-    │   ├── jd-parser.service.ts         # JD 解析服务
-    │   ├── job-summary.service.ts       # 岗位总结服务
-    │   ├── resume-advisor.service.ts    # 简历建议服务
-    │   └── interview-generator.service.ts # 面试题服务
+    │   ├── orchestrator.service.ts      # ⭐ 工作流编排器（记忆注入与写回）
+    │   ├── jd-parser.service.ts
+    │   ├── job-summary.service.ts
+    │   ├── resume-advisor.service.ts
+    │   ├── interview-generator.service.ts
+    │   ├── memory.service.ts            # 记忆门面（读上下文、落 job、刷新摘要）
+    │   ├── profile-memory.service.ts    # user_profile
+    │   └── derived-memory.service.ts    # memory_summary（规则归纳）
     ├── integrations/
     │   ├── feishu/
-    │   │   ├── auth.ts       # 飞书 Token 管理
-    │   │   ├── message.ts    # 消息发送
-    │   │   ├── bitable.ts    # 多维表格写入
-    │   │   ├── task.ts       # 任务创建
-    │   │   └── document.ts   # 文档创建
+    │   │   ├── auth.ts
+    │   │   ├── message.ts
+    │   │   ├── bitable.ts               # 主表 + 记忆表 API、自动补列、FeishuMemoryBitableService
+    │   │   ├── bitable-memory.codec.ts  # 记忆字段编解码
+    │   │   ├── task.ts
+    │   │   └── document.ts
     │   └── llm/
-    │       └── client.ts     # 统一 LLM 客户端
+    │       └── client.ts
     ├── prompts/
-    │   ├── jd-parse.prompt.ts       # JD 解析 Prompt
-    │   ├── summary.prompt.ts        # 岗位总结 Prompt
-    │   ├── resume-advice.prompt.ts  # 简历建议 Prompt
-    │   └── interview.prompt.ts      # 面试题 Prompt
+    │   ├── jd-parse.prompt.ts
+    │   ├── summary.prompt.ts
+    │   ├── resume-advice.prompt.ts
+    │   ├── interview.prompt.ts
+    │   └── light-memory.prompt.ts       # 轻量记忆 → Prompt 片段
     └── utils/
-        ├── logger.ts         # 日志工具
-        ├── retry.ts          # 重试工具
-        └── validator.ts      # 输入校验
+        ├── logger.ts
+        ├── retry.ts
+        └── validator.ts
 ```
 
 ## 🔧 本地启动
@@ -103,7 +149,7 @@ curl http://localhost:3000/health
 ### 本地调试（不依赖飞书）
 
 ```bash
-# 使用测试接口直接调用编排器
+# 使用测试接口直接调用编排器（不传 userId，不启用记忆）
 curl -X POST http://localhost:3000/api/test/analyze \
   -H "Content-Type: application/json" \
   -d '{
@@ -119,8 +165,12 @@ curl -X POST http://localhost:3000/api/test/analyze \
 | `FEISHU_APP_SECRET` | ✅ | 飞书应用 App Secret |
 | `FEISHU_VERIFICATION_TOKEN` | ✅ | 事件订阅验证 Token |
 | `FEISHU_ENCRYPT_KEY` | ❌ | 事件加密 Key |
-| `FEISHU_BITABLE_APP_TOKEN` | ✅ | 多维表格 App Token |
-| `FEISHU_BITABLE_TABLE_ID` | ✅ | 数据表 Table ID |
+| `FEISHU_BITABLE_APP_TOKEN` | ✅ | **主业务**多维表格 App Token |
+| `FEISHU_BITABLE_TABLE_ID` | ✅ | **主业务**数据表 Table ID |
+| `FEISHU_MEMORY_BITABLE_APP_TOKEN` | ❌ | 记忆库 App Token；不填则与主表同 App |
+| `FEISHU_MEMORY_USER_PROFILE_TABLE_ID` | ❌ | 画像表；三张记忆表**须同时配齐**才启用记忆 |
+| `FEISHU_MEMORY_JOB_RECORDS_TABLE_ID` | ❌ | 岗位过程表 |
+| `FEISHU_MEMORY_SUMMARY_TABLE_ID` | ❌ | 周期摘要表 |
 | `FEISHU_DOC_FOLDER_TOKEN` | ❌ | 文档存放目录 Token |
 | `LLM_API_BASE_URL` | ✅ | LLM API 地址 |
 | `LLM_API_KEY` | ✅ | LLM API Key |
@@ -140,7 +190,8 @@ curl -X POST http://localhost:3000/api/test/analyze \
 
 - `im:message:send_as_bot` — 以应用身份发送消息
 - `im:message` — 接收消息事件
-- `bitable:app` — 多维表格操作
+- `bitable:app` — 多维表格读写
+- **「新增/编辑字段」类权限**（名称以控制台为准，用于自动补列；无则自动建列失败时仅降级打日志，主流程仍继续）
 - `task:task:write` — 创建任务
 - `docx:document` — 创建文档
 - `drive:drive` — 云文档操作
@@ -152,11 +203,13 @@ curl -X POST http://localhost:3000/api/test/analyze \
 3. 添加事件：`接收消息 im.message.receive_v1`
 4. 记录 Verification Token
 
-### 4. 创建多维表格
+### 4. 多维表格（主表 + 记忆表）
 
-在飞书中创建一个多维表格，添加以下字段：
+#### 主业务台账表（必填）
 
-| 字段名 | 字段类型 |
+指向 `FEISHU_BITABLE_*`。**推荐**预先按下列列名建表（`投递状态` 可为单选或文本；单选需含常用选项）。若未建全列，服务在 **每次 `addRecord` 前** 会尝试自动创建缺失列（默认多为「文本」，`创建时间` 为「日期」）。
+
+| 字段名 | 建议类型 |
 |--------|----------|
 | 公司名称 | 文本 |
 | 岗位名称 | 文本 |
@@ -166,11 +219,15 @@ curl -X POST http://localhost:3000/api/test/analyze \
 | 岗位总结 | 文本 |
 | 简历建议 | 文本 |
 | 面试题 | 文本 |
-| 投递状态 | 单选（待投递/已投递/面试中/已拿 offer/已拒绝） |
+| 投递状态 | 单选或文本 |
 | 创建时间 | 日期 |
 | 来源 | 文本 |
 
-从多维表格 URL 中获取 `app_token` 和 `table_id` 并填入 `.env`。
+从多维表格 URL 中获取 `app_token` 和 `table_id` 填入 `.env`。
+
+#### 求职记忆三张表（可选）
+
+在**同一或不同**多维表格应用中创建三个数据表，将 Table ID 填入 `FEISHU_MEMORY_*`。列名需与 `src/constants/index.ts` 中 `MEMORY_*_FIELD_MAP` 一致；亦可先建空表，由服务在 **首次读写前** 按 `MEMORY_*_SCHEMA` 自动补列（详见上文「记忆三张表自动补列」）。
 
 ### 5. 公网暴露（开发调试）
 
@@ -192,16 +249,15 @@ ngrok http 3000
  │<──────────────────────────────│                               │
  │                               │                               │
  │                               │── LLM: JD 结构化解析 ──>     │
- │                               │── LLM: 生成岗位总结 ──>      │
- │                               │── LLM: 生成简历建议 ──>      │
- │                               │── LLM: 生成面试题 ──>        │
+ │                               │──（可选）读记忆表 ────────>   │
+ │                               │── LLM: 总结/简历/面试（带记忆）│
  │                               │                               │
- │                               │── 写入多维表格 ─────────────>│
+ │                               │── 主表 addRecord（先补列）──>│
+ │                               │──（可选）写记忆表 ────────>   │
  │                               │── 创建跟进任务 ─────────────>│
  │                               │── 创建面试准备文档 ────────>│
  │                               │                               │
  │  收到完整分析结果             │                               │
- │  （含文档链接、任务状态等）   │                               │
  │<──────────────────────────────│                               │
 ```
 
@@ -249,9 +305,7 @@ Q1: 请描述你做过的最有挑战性的前端架构设计...
 3. **投递状态流转**：在多维表格中更新状态时触发下一步自动化
 4. **面试日历管理**：自动创建日历事件并提醒准备
 5. **求职数据看板**：基于多维表格生成求职进展统计
-6. **智能跟进提醒**：根据投递时间自动发送跟进提醒
-7. **模拟面试 Bot**：基于生成的面试题开展模拟对话练习
-8. **团队协作模式**：支持 HR / 猎头使用同一系统管理候选人
+6. **记忆摘要 LLM 版**：在可解释的规则摘要之上叠加短 LLM 润色（需单独降级策略）
 
 ## 📄 License
 

@@ -1,6 +1,7 @@
 import { getLLMClient } from '../integrations/llm/client';
 import { buildResumeAdvicePrompt } from '../prompts/resume-advice.prompt';
 import { ResumeAdviceSchema } from '../types';
+import type { LightMemoryPromptContext } from '../prompts/light-memory.prompt';
 import type { JDParsed } from '../types';
 import { createLogger } from '../utils/logger';
 
@@ -13,10 +14,10 @@ const log = createLogger('ResumeAdvisor');
 export class ResumeAdvisorService {
   private llm = getLLMClient();
 
-  async generateAdvice(jdParsed: JDParsed): Promise<string[]> {
+  async generateAdvice(jdParsed: JDParsed, memory?: LightMemoryPromptContext | null): Promise<string[]> {
     log.info('开始生成简历修改建议...');
 
-    const prompt = buildResumeAdvicePrompt(jdParsed);
+    const prompt = buildResumeAdvicePrompt(jdParsed, memory);
 
     const result = await this.llm.chatJSON<{ suggestions: string[] }>(
       [{ role: 'user', content: prompt }],
