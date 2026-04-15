@@ -26,7 +26,7 @@ export function buildInterviewPrompt(parsed: JDParsed, memory?: LightMemoryPromp
 若有轻量记忆：至少 1 题可**隐性**对齐用户常见缺口或目标方向，但仍须紧扣本 JD 能力模型。
 
 ## 输出格式
-严格输出 JSON 格式，不要包含任何其他内容：
+严格输出 JSON 格式，不要包含任何其他内容。键名与所有字符串边界必须使用英文半角双引号 "，不可用弯引号 “ ” 作为字段或数组元素的起止符（值内正文仍可用弯引号）：
 {
   "questions": [
     {
