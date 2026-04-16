@@ -25,11 +25,21 @@ export const FEISHU_API_BASE = 'https://open.feishu.cn/open-apis';
 /** 已处理事件 ID 缓存大小（简易去重） */
 export const EVENT_ID_CACHE_SIZE = 500;
 
+/** 已处理事件缓存 TTL，避免飞书重试导致重复执行 */
+export const EVENT_ID_TTL_MS = 10 * 60 * 1000;
+
 /** 飞书消息事件类型 */
 export const FEISHU_EVENT_TYPE_MESSAGE = 'im.message.receive_v1';
 
+/** 飞书文件消息类型 */
+export const FEISHU_MESSAGE_TYPE_FILE = 'file';
+
+/** 简历 PDF 最大大小 */
+export const RESUME_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+
 /** 多维表格字段映射（字段名 → 表头显示名） */
 export const BITABLE_FIELD_MAP: Record<string, string> = {
+  analysis_id: '分析ID',
   company_name: '公司名称',
   job_title: '岗位名称',
   location: '工作地点',

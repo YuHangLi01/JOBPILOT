@@ -79,7 +79,7 @@ export class OrchestratorService {
     log.info('[阶段 3/3] 并行写入飞书生态...');
 
     const [bitableResult, taskResult, documentResult] = await Promise.all([
-      this.writeBitable(jdParsed, jobSummary, resumeSuggestions, interviewQuestions),
+      this.writeBitable(userId, jdParsed, jobSummary, resumeSuggestions, interviewQuestions),
       this.createTask(jdParsed, jobSummary),
       this.createDocument(jdParsed, jobSummary, resumeSuggestions, interviewQuestions),
       this.persistJobMemory(userId, jdParsed, jobSummary, resumeSuggestions),
@@ -111,6 +111,11 @@ export class OrchestratorService {
     const skills = [...jdParsed.key_skills].sort((a, b) => a.localeCompare(b)).join(',');
     const raw = `${jdParsed.company_name}|${jdParsed.job_title}|${skills}`.toLowerCase();
     return createHash('sha256').update(raw).digest('hex').slice(0, 24);
+  }
+
+  private buildAnalysisId(userId: string | undefined, jdParsed: JDParsed): string {
+    const owner = userId?.trim() || 'anonymous';
+    return `${owner}__${this.jdFingerprint(jdParsed)}`;
   }
 
   /**
@@ -150,13 +155,16 @@ export class OrchestratorService {
   }
 
   private async writeBitable(
+    userId: string | undefined,
     jdParsed: JDParsed,
     jobSummary: string,
     resumeSuggestions: string[],
     interviewQuestions: InterviewQuestion[],
   ): Promise<OrchestratorResult['bitableResult']> {
     try {
+      const analysisId = this.buildAnalysisId(userId, jdParsed);
       const record: BitableRecord = {
+        analysis_id: analysisId,
         company_name: jdParsed.company_name || '未知公司',
         job_title: jdParsed.job_title || '未知岗位',
         location: jdParsed.location || '',
@@ -170,7 +178,7 @@ export class OrchestratorService {
         source: DEFAULT_SOURCE,
       };
 
-      const { recordId } = await feishuBitableService.addRecord(record);
+      const { recordId } = await feishuBitableService.upsertMainRecord(record);
       return { success: true, recordId };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

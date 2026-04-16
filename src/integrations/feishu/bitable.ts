@@ -71,6 +71,7 @@ const memoryLog = createLogger('FeishuMemoryBitable');
 export class FeishuBitableService {
   private appToken: string;
   private tableId: string;
+  private upsertLocks = new Map<string, Promise<void>>();
 
   constructor() {
     this.appToken = config.feishu.bitableAppToken;
@@ -85,46 +86,82 @@ export class FeishuBitableService {
       company: record.company_name,
       job: record.job_title,
     });
+    const { recordId } = await this.upsertMainRecord(record);
+    return { recordId };
+  }
 
+  private async withUpsertLock<T>(lockKey: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.upsertLocks.get(lockKey) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const current = previous.then(() => gate);
+    this.upsertLocks.set(lockKey, current);
+
+    await previous;
     try {
-      await this.ensureBitableFieldSchema(
-        { appToken: this.appToken, tableId: this.tableId },
-        BITABLE_MAIN_SCHEMA,
-      );
-
-      const headers = await feishuAuth.getAuthHeaders();
-      const url = `${FEISHU_API_BASE}/bitable/v1/apps/${this.appToken}/tables/${this.tableId}/records`;
-
-      // 将字段名映射为中文表头名
-      const fields: Record<string, unknown> = {};
-      for (const [key, label] of Object.entries(BITABLE_FIELD_MAP)) {
-        const value = record[key as keyof BitableRecord];
-        if (key === 'created_at') {
-          // 多维表格日期字段接受毫秒时间戳
-          fields[label] = value;
-        } else {
-          fields[label] = value;
-        }
+      return await task();
+    } finally {
+      release();
+      if (this.upsertLocks.get(lockKey) === current) {
+        this.upsertLocks.delete(lockKey);
       }
-
-      const resp = await axios.post<FeishuBitableResponse>(
-        url,
-        { fields },
-        { headers, timeout: 15000 },
-      );
-
-      if (resp.data.code !== 0) {
-        throw new Error(`多维表格写入失败: code=${resp.data.code}, msg=${resp.data.msg}`);
-      }
-
-      const recordId = resp.data.data?.record?.record_id || 'unknown';
-      log.info(`多维表格写入成功: recordId=${recordId}`);
-
-      return { recordId };
-    } catch (err) {
-      log.error('多维表格写入异常', err instanceof Error ? err.message : err);
-      throw err;
     }
+  }
+
+  async upsertRecordInTable(
+    ref: BitableTableRef,
+    params: {
+      lockKey: string;
+      filter: Record<string, unknown>;
+      fields: Record<string, unknown>;
+      fieldSchema?: BitableFieldSchemaSpec;
+    },
+  ): Promise<MemoryBitableUpsertResult> {
+    return this.withUpsertLock(params.lockKey, async () => {
+      const search = await this.searchRecordsInTable(
+        ref,
+        {
+          page_size: 20,
+          filter: params.filter,
+        },
+        params.fieldSchema,
+      );
+      const hit = search.items[0];
+      const duplicateCount = Math.max(0, search.items.length - 1);
+      if (duplicateCount > 0) {
+        log.warn('检测到重复记录，更新首条并阻止继续新增', {
+          tableId: ref.tableId,
+          lockKey: params.lockKey,
+          duplicateCount,
+        });
+      }
+      if (hit) {
+        await this.updateRecordInTable(ref, hit.record_id, params.fields, params.fieldSchema);
+        return { recordId: hit.record_id, created: false, duplicateCount };
+      }
+      const { recordId } = await this.createRecordInTable(ref, params.fields, params.fieldSchema);
+      return { recordId, created: true, duplicateCount: 0 };
+    });
+  }
+
+  async upsertMainRecord(record: BitableRecord): Promise<MemoryBitableUpsertResult> {
+    const ref = { appToken: this.appToken, tableId: this.tableId };
+    await this.ensureBitableFieldSchema(ref, BITABLE_MAIN_SCHEMA);
+
+    const fields: Record<string, unknown> = {};
+    for (const [key, label] of Object.entries(BITABLE_FIELD_MAP)) {
+      const value = record[key as keyof BitableRecord];
+      fields[label] = value;
+    }
+
+    return this.upsertRecordInTable(ref, {
+      lockKey: `main:${record.analysis_id}`,
+      filter: buildTextEqFilter(BITABLE_FIELD_MAP.analysis_id, record.analysis_id),
+      fields,
+      fieldSchema: BITABLE_MAIN_SCHEMA,
+    });
   }
 
   /**
@@ -133,7 +170,7 @@ export class FeishuBitableService {
   async addRecords(records: BitableRecord[]): Promise<void> {
     // TODO: 使用飞书批量新增接口 /bitable/v1/apps/:app_token/tables/:table_id/records/batch_create
     for (const record of records) {
-      await this.addRecord(record);
+      await this.upsertMainRecord(record);
     }
   }
 
@@ -476,23 +513,14 @@ export class FeishuMemoryBitableService {
       joinArrayValues: true,
     });
 
-    return this.withTransientRetry('memory.upsertUserProfile', async () => {
-      const search = await this.bitable.searchRecordsInTable(
-        ref,
-        {
-          page_size: 1,
-          filter: buildTextEqFilter(MEMORY_USER_PROFILE_FIELD_MAP.user_id, input.user_id),
-        },
-        MEMORY_USER_PROFILE_SCHEMA,
-      );
-      const hit = search.items[0];
-      if (hit) {
-        await this.bitable.updateRecordInTable(ref, hit.record_id, fields, MEMORY_USER_PROFILE_SCHEMA);
-        return { recordId: hit.record_id, created: false };
-      }
-      const { recordId } = await this.bitable.createRecordInTable(ref, fields, MEMORY_USER_PROFILE_SCHEMA);
-      return { recordId, created: true };
-    });
+    return this.withTransientRetry('memory.upsertUserProfile', async () =>
+      this.bitable.upsertRecordInTable(ref, {
+        lockKey: `memory:user_profile:${input.user_id}`,
+        filter: buildTextEqFilter(MEMORY_USER_PROFILE_FIELD_MAP.user_id, input.user_id),
+        fields,
+        fieldSchema: MEMORY_USER_PROFILE_SCHEMA,
+      }),
+    );
   }
 
   /**
@@ -617,13 +645,12 @@ export class FeishuMemoryBitableService {
       const fields = encodeMemoryFields(MEMORY_SUMMARY_FIELD_MAP, merged as unknown as Record<string, unknown>, {
         joinArrayValues: true,
       });
-
-      if (hit) {
-        await this.bitable.updateRecordInTable(ref, hit.record_id, fields, MEMORY_SUMMARY_SCHEMA);
-        return { recordId: hit.record_id, created: false };
-      }
-      const { recordId } = await this.bitable.createRecordInTable(ref, fields, MEMORY_SUMMARY_SCHEMA);
-      return { recordId, created: true };
+      return this.bitable.upsertRecordInTable(ref, {
+        lockKey: `memory:summary:${withTime.summary_id}`,
+        filter: buildTextEqFilter(MEMORY_SUMMARY_FIELD_MAP.summary_id, withTime.summary_id),
+        fields,
+        fieldSchema: MEMORY_SUMMARY_SCHEMA,
+      });
     });
   }
 }

@@ -130,11 +130,12 @@ export class DerivedMemoryService {
       const fields = encodeMemoryFields(MEMORY_SUMMARY_FIELD_MAP, merged as unknown as Record<string, unknown>, {
         joinArrayValues: true,
       });
-      if (hit) {
-        await feishuBitableService.updateRecordInTable(ref, hit.record_id, fields, MEMORY_SUMMARY_SCHEMA);
-        return { success: true, recordId: hit.record_id };
-      }
-      const { recordId } = await feishuBitableService.createRecordInTable(ref, fields, MEMORY_SUMMARY_SCHEMA);
+      const { recordId } = await feishuBitableService.upsertRecordInTable(ref, {
+        lockKey: `memory:summary:${patch.summary_id}`,
+        filter: buildTextEqFilter(MEMORY_SUMMARY_FIELD_MAP.summary_id, patch.summary_id),
+        fields,
+        fieldSchema: MEMORY_SUMMARY_SCHEMA,
+      });
       return { success: true, recordId };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

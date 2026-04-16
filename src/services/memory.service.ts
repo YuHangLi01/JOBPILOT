@@ -115,20 +115,12 @@ export class MemoryService {
     });
 
     try {
-      const existing = await feishuBitableService.searchRecordsInTable(
-        ref,
-        {
-          page_size: 1,
-          filter: buildTextEqFilter(MEMORY_JOB_RECORDS_FIELD_MAP.job_record_id, record.job_record_id),
-        },
-        MEMORY_JOB_RECORDS_SCHEMA,
-      );
-      const hit = existing.items[0];
-      if (hit) {
-        await feishuBitableService.updateRecordInTable(ref, hit.record_id, fields, MEMORY_JOB_RECORDS_SCHEMA);
-        return { success: true, recordId: hit.record_id };
-      }
-      const { recordId } = await feishuBitableService.createRecordInTable(ref, fields, MEMORY_JOB_RECORDS_SCHEMA);
+      const { recordId } = await feishuBitableService.upsertRecordInTable(ref, {
+        lockKey: `memory:job_record:${record.job_record_id}`,
+        filter: buildTextEqFilter(MEMORY_JOB_RECORDS_FIELD_MAP.job_record_id, record.job_record_id),
+        fields,
+        fieldSchema: MEMORY_JOB_RECORDS_SCHEMA,
+      });
       return { success: true, recordId };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

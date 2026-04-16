@@ -34,6 +34,22 @@ export const ResumeAdviceSchema = z.object({
 export type ResumeAdvice = z.infer<typeof ResumeAdviceSchema>;
 
 // ============================================
+// 简历画像提取 Schema
+// ============================================
+export const ResumeProfileExtractionSchema = z.object({
+  target_roles: z.array(z.string()).default([]),
+  target_industries: z.array(z.string()).default([]),
+  preferred_cities: z.array(z.string()).default([]),
+  years_of_experience: z.number().min(0).max(60).optional(),
+  core_skill_tags: z.array(z.string()).default([]),
+  weak_skill_tags: z.array(z.string()).default([]),
+  certifications: z.string().optional(),
+  resume_focus_summary: z.string().default(''),
+  constraints_summary: z.string().default(''),
+});
+export type ResumeProfileExtraction = z.infer<typeof ResumeProfileExtractionSchema>;
+
+// ============================================
 // 面试题 Schema
 // ============================================
 export const InterviewQuestionSchema = z.object({
@@ -90,10 +106,16 @@ export interface FeishuMessageContent {
   text: string;
 }
 
+export interface FeishuFileMessageContent {
+  file_key?: string;
+  file_name?: string;
+}
+
 // ============================================
 // 多维表格记录
 // ============================================
 export interface BitableRecord {
+  analysis_id: string;
   company_name: string;
   job_title: string;
   location: string;
@@ -383,6 +405,22 @@ export type UpsertUserProfileInput = Partial<Omit<UserProfileMemory, 'user_id'>>
 export interface MemoryBitableUpsertResult {
   recordId: string;
   created: boolean;
+  duplicateCount?: number;
+}
+
+export interface ResumeIngestionInput {
+  userId: string;
+  filename: string;
+  buffer: Buffer;
+  source: string;
+}
+
+export interface ResumeIngestionResult {
+  filename: string;
+  source: string;
+  extractedText: string;
+  profilePatch: UpsertUserProfileInput;
+  writeResult: ServiceResult;
 }
 
 export interface FindRecentJobRecordsOptions {
