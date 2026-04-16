@@ -5,10 +5,11 @@
 ## ✨ 项目亮点
 
 - **聊天即触发**：在飞书对话中发送一段 JD，即可自动启动完整分析流程
+- **PDF 简历可导入记忆**：支持 HTTP 上传或飞书发送 PDF 简历，自动解析并写入 `user_profile`
 - **LLM 编排引擎**：多步骤 Prompt 分离设计，结构化解析 → 总结 → 简历建议 → 面试题
 - **飞书生态打通**：多维表格记录、任务创建、文档生成一步到位
 - **轻量求职记忆（可选）**：基于飞书多维表格的画像 / 岗位过程 / 周期摘要，让输出更连续；未配置或失败时自动降级
-- **多维表格自动补列**：主业务台账表与三张记忆表在写入/检索前对齐列结构，缺列则调用飞书 API 创建，避免因缺列整链失败
+- **多维表格自动补列 + 幂等写入**：主业务台账表与三张记忆表在写入/检索前对齐列结构；主表按 `analysis_id`、记忆表按各自逻辑键 upsert，减少重复插入
 - **优雅降级**：任一外部调用失败不影响主流程，用户始终获得最大可用结果
 - **比赛就绪**：清晰的工程结构、完整类型定义、模块化设计，适合答辩展示
 
@@ -20,7 +21,8 @@
 | 岗位要求总结 | 100~200 字精炼总结；可结合用户记忆做轻微个性化 |
 | 简历修改建议 | 5~8 条可执行建议；可结合历史缺口与画像薄弱项 |
 | 面试题预测 | 3 道高概率面试题 + 出题意图 + 回答要点；可结合记忆约束表述 |
-| 主业务多维表格 | 每次写入前按 `BITABLE_FIELD_MAP` 自动补列后新增一行求职台账 |
+| PDF 简历导入 | 解析 PDF 简历文本并抽取求职画像，写入 `user_profile` |
+| 主业务多维表格 | 写入前按 `BITABLE_FIELD_MAP` 自动补列，并按 `analysis_id` 幂等 upsert 求职台账 |
 | 轻量记忆（三张表） | `user_profile` / `job_records` / `memory_summary`；读写在检索/写入前自动补列 |
 | 跟进任务创建 | 自动创建带截止时间的飞书任务 |
 | 面试准备文档 | 自动生成结构化文档并返回链接 |
@@ -38,29 +40,40 @@
 | 执行编排 | 上述校验通过后 | `orchestratorService.execute(jdText, { userId })`，`userId` 为发送者 `open_id`（有则传，无则等价旧版） |
 | 拉取记忆 | `userId` 非空 **且** `.env` 中三张记忆表 ID 均已配置 | `memoryService.getMemoryContextForJobAnalysis`；否则不读记忆 |
 | LLM 并行 | JD 解析完成后 | 岗位总结、简历建议、面试题并行调用；若存在记忆则注入 `LightMemoryPromptContext` |
-| 写主业务表 | 编排阶段 3，与其它飞书写入并行 | `feishuBitableService.addRecord` → **写入前**按 `BITABLE_MAIN_SCHEMA` 自动补列 |
+| 写主业务表 | 编排阶段 3，与其它飞书写入并行 | `feishuBitableService.upsertMainRecord` → **写入前**按 `BITABLE_MAIN_SCHEMA` 自动补列，并按 `analysis_id` 幂等更新 |
 | 写记忆表 | 同上阶段 3，且 `userId` 非空 **且** 记忆表已配置 | `persistJobMemory` → `refreshAfterJobProcessing`（岗位记录 + rolling 摘要 + 活跃时间）；失败仅打日志 |
 | 回复用户 | 编排完成后 | 拼装文本回复（含多维表格/任务/文档状态） |
 
-### 2. 主业务多维表格「自动补列」
+### 2. 飞书 / HTTP 导入 PDF 简历
 
 | 触发点 | 条件 | 行为 |
 |--------|------|------|
-| `addRecord` / `addRecords` | 每次向 `FEISHU_BITABLE_APP_TOKEN` + `FEISHU_BITABLE_TABLE_ID` 写入 | 先 `list` 字段，再对 `BITABLE_FIELD_MAP` 中缺失的中文列名调用「新增字段」API；`创建时间` 列为日期类型，其余默认文本 |
+| 飞书文件消息 | 飞书事件 `im.message.receive_v1`，且 `message_type=file`、文件为 PDF | 下载文件资源 → 解析 PDF 文本 → LLM 抽取画像 → upsert `user_profile` |
+| HTTP 调试接口 | `POST /api/test/resume`，multipart 上传字段 `resume`，并传 `user_id` | 使用同一套简历导入服务，本地调试不依赖飞书 |
+| 冷启动建档 | 用户此前不存在 `user_profile` 记录 | 首次成功导入简历时创建画像行，补齐 `profile_version` / `updated_at` / `last_active_at` |
+
+### 3. 主业务多维表格「自动补列 + 幂等写入」
+
+| 触发点 | 条件 | 行为 |
+|--------|------|------|
+| `upsertMainRecord` / `addRecord` / `addRecords` | 每次向 `FEISHU_BITABLE_APP_TOKEN` + `FEISHU_BITABLE_TABLE_ID` 写入 | 先 `list` 字段，再对 `BITABLE_FIELD_MAP` 中缺失的中文列名调用「新增字段」API；`创建时间` 列为日期类型，其余默认文本 |
+| 主表幂等键 | 同一用户重复处理同一 JD 指纹 | 使用 `analysis_id = userId + jdFingerprint` 搜索并更新首条命中记录，避免未来重复新增 |
 | 失败策略 | 无建列权限或 API 报错 | 打 `warn`，不抛错到业务外层；后续写入仍可能失败，由原有 `writeBitable` try/catch 标记失败 |
 
-### 3. 记忆三张表「自动补列」
+### 4. 记忆三张表「自动补列 + 非破坏式去重」
 
 | 触发点 | 条件 | 行为 |
 |--------|------|------|
 | 记忆表检索 / 写入 | 任意使用 `searchRecordsInTable` / `createRecordInTable` / `updateRecordInTable` 且传入对应 `MEMORY_*_SCHEMA` | 写入/检索前对齐该表全部约定列（见 `constants/index.ts`） |
 | 标签类数组 | 写入记忆表 | `encodeMemoryFields(..., { joinArrayValues: true })` 将 `string[]` 拼为「、」文本，兼容自动创建的文本列；读出时 `readStringArray` 同时兼容多选控件与纯文本 |
+| 非破坏式去重 | 同一逻辑键命中多条旧记录 | 更新首条命中记录并打日志，不自动清理历史重复行，但阻止继续新增重复数据 |
 
-### 4. 本地 HTTP 调试（不经飞书事件）
+### 5. 本地 HTTP 调试（不经飞书事件）
 
 | 触发 | 条件 | 行为 |
 |------|------|------|
 | `POST /api/test/analyze` | 请求体带 `jd_text` | 调用编排器；**不传** `userId`，故不会走记忆读写（与飞书链路区分） |
+| `POST /api/test/resume` | multipart 上传字段 `resume`，并附带 `user_id` | 导入 PDF 简历到 `user_profile`，便于本地联调 |
 
 ---
 
@@ -91,6 +104,7 @@ jobpilot-feishu/
     │   ├── jd-parser.service.ts
     │   ├── job-summary.service.ts
     │   ├── resume-advisor.service.ts
+    │   ├── resume-ingestion.service.ts  # PDF 简历解析 + user_profile 导入
     │   ├── interview-generator.service.ts
     │   ├── memory.service.ts            # 记忆门面（读上下文、落 job、刷新摘要）
     │   ├── profile-memory.service.ts    # user_profile
@@ -98,6 +112,7 @@ jobpilot-feishu/
     ├── integrations/
     │   ├── feishu/
     │   │   ├── auth.ts
+    │   │   ├── file.ts                  # 飞书文件消息下载
     │   │   ├── message.ts
     │   │   ├── bitable.ts               # 主表 + 记忆表 API、自动补列、FeishuMemoryBitableService
     │   │   ├── bitable-memory.codec.ts  # 记忆字段编解码
@@ -107,6 +122,7 @@ jobpilot-feishu/
     │       └── client.ts
     ├── prompts/
     │   ├── jd-parse.prompt.ts
+    │   ├── resume-profile-extract.prompt.ts # 简历画像抽取 Prompt
     │   ├── summary.prompt.ts
     │   ├── resume-advice.prompt.ts
     │   ├── interview.prompt.ts
@@ -157,6 +173,13 @@ curl -X POST http://localhost:3000/api/test/analyze \
   }'
 ```
 
+```bash
+# 上传 PDF 简历，写入 user_profile（本地调试）
+curl -X POST http://localhost:3000/api/test/resume \
+  -F "user_id=test-user-001" \
+  -F "resume=@./resume.pdf;type=application/pdf"
+```
+
 ## 🌐 环境变量说明
 
 | 变量 | 必填 | 说明 |
@@ -189,7 +212,7 @@ curl -X POST http://localhost:3000/api/test/analyze \
 在应用的「权限管理」中开通以下权限：
 
 - `im:message:send_as_bot` — 以应用身份发送消息
-- `im:message` — 接收消息事件
+- `im:message` — 接收消息事件、下载文件消息资源
 - `bitable:app` — 多维表格读写
 - **「新增/编辑字段」类权限**（名称以控制台为准，用于自动补列；无则自动建列失败时仅降级打日志，主流程仍继续）
 - `task:task:write` — 创建任务
@@ -207,10 +230,11 @@ curl -X POST http://localhost:3000/api/test/analyze \
 
 #### 主业务台账表（必填）
 
-指向 `FEISHU_BITABLE_*`。**推荐**预先按下列列名建表（`投递状态` 可为单选或文本；单选需含常用选项）。若未建全列，服务在 **每次 `addRecord` 前** 会尝试自动创建缺失列（默认多为「文本」，`创建时间` 为「日期」）。
+指向 `FEISHU_BITABLE_*`。**推荐**预先按下列列名建表（`投递状态` 可为单选或文本；单选需含常用选项）。若未建全列，服务在写入前会尝试自动创建缺失列（默认多为「文本」，`创建时间` 为「日期」）。主表还会按 `分析ID` 做幂等更新，避免未来重复插入同一条分析记录。
 
 | 字段名 | 建议类型 |
 |--------|----------|
+| 分析ID | 文本 |
 | 公司名称 | 文本 |
 | 岗位名称 | 文本 |
 | 工作地点 | 文本 |
@@ -227,7 +251,7 @@ curl -X POST http://localhost:3000/api/test/analyze \
 
 #### 求职记忆三张表（可选）
 
-在**同一或不同**多维表格应用中创建三个数据表，将 Table ID 填入 `FEISHU_MEMORY_*`。列名需与 `src/constants/index.ts` 中 `MEMORY_*_FIELD_MAP` 一致；亦可先建空表，由服务在 **首次读写前** 按 `MEMORY_*_SCHEMA` 自动补列（详见上文「记忆三张表自动补列」）。
+在**同一或不同**多维表格应用中创建三个数据表，将 Table ID 填入 `FEISHU_MEMORY_*`。列名需与 `src/constants/index.ts` 中 `MEMORY_*_FIELD_MAP` 一致；亦可先建空表，由服务在 **首次读写前** 按 `MEMORY_*_SCHEMA` 自动补列（详见上文「记忆三张表自动补列」）。`user_profile` 现已支持通过 PDF 简历冷启动建档。
 
 ### 5. 公网暴露（开发调试）
 
@@ -252,12 +276,19 @@ ngrok http 3000
  │                               │──（可选）读记忆表 ────────>   │
  │                               │── LLM: 总结/简历/面试（带记忆）│
  │                               │                               │
- │                               │── 主表 addRecord（先补列）──>│
+ │                               │── 主表 upsertMainRecord ───>│
  │                               │──（可选）写记忆表 ────────>   │
  │                               │── 创建跟进任务 ─────────────>│
  │                               │── 创建面试准备文档 ────────>│
  │                               │                               │
  │  收到完整分析结果             │                               │
+ │<──────────────────────────────│                               │
+ │                               │                               │
+ │  发送 PDF 简历到飞书聊天      │                               │
+ │──────────────────────────────>│                               │
+ │                               │── 下载文件 / 解析 PDF ────>   │
+ │                               │── upsert user_profile ────>   │
+ │  收到简历导入结果             │                               │
  │<──────────────────────────────│                               │
 ```
 
@@ -300,7 +331,7 @@ Q1: 请描述你做过的最有挑战性的前端架构设计...
 
 ## 🔮 后续扩展方向
 
-1. **简历匹配度评分**：上传简历文件，自动与 JD 匹配打分
+1. **简历匹配度评分**：基于已导入的 PDF 简历内容，自动与 JD 匹配打分
 2. **多 JD 批量处理**：支持批量粘贴多个 JD 并行分析
 3. **投递状态流转**：在多维表格中更新状态时触发下一步自动化
 4. **面试日历管理**：自动创建日历事件并提醒准备
