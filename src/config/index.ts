@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { z } from 'zod';
 dotenv.config();
 
 function requireEnv(key: string, fallback?: string): string {
@@ -8,6 +9,27 @@ function requireEnv(key: string, fallback?: string): string {
   }
   return val;
 }
+
+// Zod schema for Python Agent related env vars (new additions only)
+const pythonAgentEnvSchema = z.object({
+  USE_PYTHON_AGENT: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true'),
+  PYTHON_AGENT_URL: z.string().url().optional().default('http://localhost:8000'),
+  PYTHON_AGENT_TIMEOUT_MS: z
+    .string()
+    .optional()
+    .transform((v) => parseInt(v ?? '30000', 10)),
+  INTERNAL_SECRET: z.string().optional().default(''),
+});
+
+const pythonAgentEnv = pythonAgentEnvSchema.parse({
+  USE_PYTHON_AGENT: process.env.USE_PYTHON_AGENT,
+  PYTHON_AGENT_URL: process.env.PYTHON_AGENT_URL,
+  PYTHON_AGENT_TIMEOUT_MS: process.env.PYTHON_AGENT_TIMEOUT_MS,
+  INTERNAL_SECRET: process.env.INTERNAL_SECRET,
+});
 
 const feishuBitableAppToken = requireEnv('FEISHU_BITABLE_APP_TOKEN');
 
@@ -43,4 +65,12 @@ export const config = {
 
   /** 日志 */
   logLevel: process.env.LOG_LEVEL || 'info',
+
+  /** Python Agent 双栈配置 */
+  pythonAgent: {
+    usePythonAgent: pythonAgentEnv.USE_PYTHON_AGENT,
+    url: pythonAgentEnv.PYTHON_AGENT_URL,
+    timeoutMs: pythonAgentEnv.PYTHON_AGENT_TIMEOUT_MS,
+    internalSecret: pythonAgentEnv.INTERNAL_SECRET,
+  },
 } as const;
