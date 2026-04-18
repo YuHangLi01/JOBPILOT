@@ -9,6 +9,8 @@ function requireEnv(key: string, fallback?: string): string {
   return val;
 }
 
+const feishuBitableAppToken = requireEnv('FEISHU_BITABLE_APP_TOKEN');
+
 export const config = {
   /** 服务端口 */
   port: parseInt(process.env.PORT || '3000', 10),
@@ -20,8 +22,13 @@ export const config = {
     appSecret: requireEnv('FEISHU_APP_SECRET'),
     verificationToken: requireEnv('FEISHU_VERIFICATION_TOKEN'),
     encryptKey: process.env.FEISHU_ENCRYPT_KEY || '',
-    bitableAppToken: requireEnv('FEISHU_BITABLE_APP_TOKEN'),
+    bitableAppToken: feishuBitableAppToken,
     bitableTableId: requireEnv('FEISHU_BITABLE_TABLE_ID'),
+    /** 求职记忆三张表：与主分析表可共用同一 app，仅 table 不同 */
+    memoryBitableAppToken: process.env.FEISHU_MEMORY_BITABLE_APP_TOKEN || feishuBitableAppToken,
+    memoryUserProfileTableId: process.env.FEISHU_MEMORY_USER_PROFILE_TABLE_ID || '',
+    memoryJobRecordsTableId: process.env.FEISHU_MEMORY_JOB_RECORDS_TABLE_ID || '',
+    memorySummaryTableId: process.env.FEISHU_MEMORY_SUMMARY_TABLE_ID || '',
     docFolderToken: process.env.FEISHU_DOC_FOLDER_TOKEN || '',
   },
 

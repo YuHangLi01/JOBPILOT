@@ -1,4 +1,4 @@
-import { JD_MIN_LENGTH, JD_MAX_LENGTH } from '../constants';
+import { JD_MIN_LENGTH, JD_MAX_LENGTH, RESUME_MAX_FILE_SIZE_BYTES } from '../constants';
 
 export interface ValidationResult {
   valid: boolean;
@@ -64,4 +64,45 @@ export function safeParseJSON<T>(raw: string): T | null {
   } catch {
     return null;
   }
+}
+
+export function isPdfFilename(filename: string | undefined | null): boolean {
+  if (!filename) return false;
+  return /\.pdf$/i.test(filename.trim());
+}
+
+export function looksLikePdfBuffer(buffer: Buffer): boolean {
+  return buffer.subarray(0, 4).toString('utf8') === '%PDF';
+}
+
+export function validateResumePdf(input: {
+  filename?: string | null;
+  mimetype?: string | null;
+  size?: number | null;
+  buffer?: Buffer | null;
+}): ValidationResult {
+  const filename = input.filename?.trim() || '';
+  const mimetype = input.mimetype?.trim().toLowerCase() || '';
+  const size = input.size ?? input.buffer?.length ?? 0;
+  const buffer = input.buffer ?? null;
+
+  if (!filename) {
+    return { valid: false, error: '缺少文件名，请上传 PDF 简历。' };
+  }
+  if (!isPdfFilename(filename) && mimetype !== 'application/pdf') {
+    return { valid: false, error: '目前仅支持 PDF 格式的简历文件。' };
+  }
+  if (size <= 0) {
+    return { valid: false, error: '收到的文件为空，请重新上传 PDF 简历。' };
+  }
+  if (size > RESUME_MAX_FILE_SIZE_BYTES) {
+    return {
+      valid: false,
+      error: `PDF 文件过大（最多 ${Math.floor(RESUME_MAX_FILE_SIZE_BYTES / 1024 / 1024)}MB），请压缩后再试。`,
+    };
+  }
+  if (buffer && !looksLikePdfBuffer(buffer)) {
+    return { valid: false, error: '文件内容不是合法的 PDF，请确认上传的是简历 PDF。' };
+  }
+  return { valid: true };
 }

@@ -10,6 +10,7 @@ const app = express();
 
 // 解析 JSON body
 app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 // 请求日志中间件
 app.use((req, _res, next) => {

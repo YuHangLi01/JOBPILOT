@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { config } from '../../config';
+import { repairStructuralSmartQuotes } from '../../utils/llm-json';
 import { createLogger } from '../../utils/logger';
 import { withRetry } from '../../utils/retry';
 import type { LLMMessage, LLMResponse } from '../../types';
@@ -80,9 +81,16 @@ export class LLMClient {
     const cleaned = raw
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/i, '')
-      .trim();
+      .trim()
+      .replace(/^\uFEFF/, '');
 
-    const parsed = parser(cleaned);
+    let parsed = parser(cleaned);
+    if (parsed === null) {
+      const repaired = repairStructuralSmartQuotes(cleaned);
+      if (repaired !== cleaned) {
+        parsed = parser(repaired);
+      }
+    }
     if (parsed === null) {
       log.error(`${label} 返回内容无法解析为目标格式`, cleaned);
       throw new Error(`${label} 返回格式异常，无法解析`);
