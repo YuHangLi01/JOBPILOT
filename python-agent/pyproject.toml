@@ -14,6 +14,8 @@ dependencies = [
     "langgraph>=0.2",
     "langgraph-checkpoint-postgres>=1.0",
     "pymilvus>=2.4",
+    "chromadb>=0.5",
+    "numpy>=1.26",
     "rank-bm25>=0.2.2",
     "jieba>=0.42",
     "sentence-transformers>=2.7",
@@ -62,6 +64,9 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: 集成测试，需要外部服务（Milvus 等），默认不运行，用 -m integration 启用",
+]
 
 [tool.ruff]
 line-length = 100

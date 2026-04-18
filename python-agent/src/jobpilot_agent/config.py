@@ -27,8 +27,23 @@ class Settings(BaseSettings):
     nodejs_internal_secret: str = ""
 
     # ── 嵌入模型 ─────────────────────────────────────────────
+    embedding_provider: Literal["local", "doubao"] = "local"
     embedding_model_name: str = "BAAI/bge-m3"
     embedding_dimension: int = 1024
+
+    # ── 精排器 ───────────────────────────────────────────────
+    reranker_model_name: str = "BAAI/bge-reranker-v2-m3"
+    reranker_enabled_default: bool = False
+
+    # ── BM25 索引持久化 ──────────────────────────────────────
+    bm25_index_dir: str = "./data/bm25_indexes"
+
+    # ── Milvus 扩展配置 ──────────────────────────────────────
+    milvus_db_name: str = "default"
+
+    # ── 降级策略 ─────────────────────────────────────────────
+    retrieval_fallback_to_chroma: bool = True
+    chroma_persist_dir: str = "./data/chroma"
 
     model_config = SettingsConfigDict(
         env_file=".env",
