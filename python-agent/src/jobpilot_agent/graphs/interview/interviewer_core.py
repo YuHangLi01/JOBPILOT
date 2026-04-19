@@ -64,8 +64,17 @@ class _StagePrediction(BaseModel):
     reasoning: str
 
 
+class _RawSignal(BaseModel):
+    """LLM 评分输出——不含 turn_id/stage（由 evaluate_candidate_answer 补充）。"""
+
+    dimension: Literal["clarity", "technical_depth", "relevance", "problem_solving", "communication"]
+    score: float
+    evidence: str
+    improvement_hint: str | None = None
+
+
 class _EvalSignals(BaseModel):
-    signals: list[PerformanceSignal]
+    signals: list[_RawSignal]
 
 
 # ── InterviewerCore ─────────────────────────────────────────────────────────

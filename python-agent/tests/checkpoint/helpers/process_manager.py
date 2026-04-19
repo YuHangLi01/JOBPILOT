@@ -58,7 +58,6 @@ class AgentProcess:
 
     async def start(self, wait_timeout: float = 45.0) -> None:
         env = _build_env(self.backend, self.sqlite_path, self.port)
-        import tempfile
         self._logfile = open(f"/tmp/agent_proc_{self.port}.log", "w")
         self.process = subprocess.Popen(
             [

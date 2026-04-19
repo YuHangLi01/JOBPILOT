@@ -61,6 +61,7 @@ def _to_api_report(report_dict: dict[str, Any]) -> InterviewReport:
     stage_scores = [
         StageScore(stage=k, score=float(v), comment="")
         for k, v in report_dict.get("stage_scores", {}).items()
+        if float(v) >= 0  # LLM uses -1 for unvisited stages; omit from API response
     ]
     return InterviewReport(
         stage_scores=stage_scores,
