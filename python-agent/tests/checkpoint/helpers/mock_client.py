@@ -15,7 +15,12 @@ class InterviewMockClient:
     def __init__(self, base_url: str, thread_id: str) -> None:
         self.base_url = base_url
         self.thread_id = thread_id
-        self._client = httpx.AsyncClient(base_url=base_url, timeout=120.0)
+        # Bypass system proxies — 127.0.0.1 must go direct
+        self._client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=300.0,
+            transport=httpx.AsyncHTTPTransport(),
+        )
 
     async def start(
         self,
