@@ -1,0 +1,87 @@
+name: Checkpoint Consistency Tests
+
+on:
+  push:
+    paths:
+      - "python-agent/src/**"
+      - "python-agent/tests/checkpoint/**"
+      - "python-agent/pyproject.toml"
+  pull_request:
+    paths:
+      - "python-agent/src/**"
+      - "python-agent/tests/checkpoint/**"
+
+defaults:
+  run:
+    working-directory: python-agent
+
+jobs:
+  checkpoint-sqlite:
+    name: SQLite Kill-Restart Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run SQLite checkpoint tests
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_API_BASE_URL: ${{ secrets.LLM_API_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3' }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL || 'doubao-pro-4k' }}
+        run: |
+          uv run pytest tests/checkpoint/test_sqlite_kill_restart.py \
+            -v -m checkpoint \
+            --timeout=120
+
+  checkpoint-postgres:
+    name: Postgres Kill-Restart Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: test_checkpoint
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run Postgres checkpoint tests
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_API_BASE_URL: ${{ secrets.LLM_API_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3' }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL || 'doubao-pro-4k' }}
+          POSTGRES_TEST_URL: "postgresql://postgres:pass@localhost:5432/test_checkpoint"
+        run: |
+          uv run pytest tests/checkpoint/test_postgres_kill_restart.py \
+            -v -m checkpoint \
+            --timeout=120

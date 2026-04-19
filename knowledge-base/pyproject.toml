@@ -1,0 +1,55 @@
+[project]
+name = "kb-builder"
+version = "0.1.0"
+description = "JobPilot knowledge-base ingest pipeline: JD / interview / user résumé → Milvus"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "jobpilot-agent",
+    "click>=8.1",
+    "tqdm>=4.66",
+    "pydantic>=2.6",
+    "langchain>=0.2",
+    "langchain-text-splitters>=0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.3",
+    "mypy>=1.9",
+]
+
+[project.scripts]
+kb-ingest = "kb_builder.ingest.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kb_builder"]
+
+[tool.uv.sources]
+jobpilot-agent = { path = "../python-agent", editable = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: 集成测试，需要 Milvus 在 localhost:19530 可用",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+explicit_package_bases = true
+mypy_path = "src"

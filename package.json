@@ -7,7 +7,11 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "lint": "eslint src/**/*.ts"
+    "lint": "eslint src/**/*.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "gen:types": "openapi-typescript ./contracts/openapi.json -o src/integrations/python-agent/generated.ts",
+    "verify:contracts": "npm run gen:types && git diff --exit-code src/integrations/python-agent/generated.ts"
   },
   "keywords": [
     "feishu",
@@ -34,8 +38,11 @@
     "@types/uuid": "^9.0.7",
     "@typescript-eslint/eslint-plugin": "^6.20.0",
     "@typescript-eslint/parser": "^6.20.0",
+    "@vitest/coverage-v8": "^4.1.4",
     "eslint": "^8.56.0",
+    "openapi-typescript": "^7.13.0",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.4"
   }
 }

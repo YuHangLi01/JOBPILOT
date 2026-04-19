@@ -1,9 +1,12 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
+import axios from 'axios';
 import { feishuEventController } from '../controllers/feishu-event.controller';
 import { RESUME_MAX_FILE_SIZE_BYTES } from '../constants';
 import { resumeIngestionService } from '../services/resume-ingestion.service';
 import { validateResumePdf } from '../utils/validator';
+import { config } from '../config';
+import internalRouter from './internal.routes';
 
 const router = Router();
 const upload = multer({
@@ -14,13 +17,29 @@ const upload = multer({
 /**
  * 健康检查
  * GET /health
+ *
+ * 同时探测 Python Agent 连通性（5s 超时，失败不影响自身 status）。
  */
-router.get('/health', (_req: Request, res: Response) => {
+router.get('/health', async (_req: Request, res: Response) => {
+  let pythonAgentStatus: { reachable: boolean; latency_ms: number | null } = {
+    reachable: false,
+    latency_ms: null,
+  };
+
+  const probeStart = Date.now();
+  try {
+    await axios.get(`${config.pythonAgent.url}/health`, { timeout: 5000 });
+    pythonAgentStatus = { reachable: true, latency_ms: Date.now() - probeStart };
+  } catch {
+    pythonAgentStatus = { reachable: false, latency_ms: null };
+  }
+
   res.json({
     status: 'ok',
     service: 'JobPilot for Feishu',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
+    python_agent: pythonAgentStatus,
   });
 });
 
@@ -115,5 +134,8 @@ router.post('/api/test/resume', (req: Request, res: Response) => {
     }
   });
 });
+
+// 内部回调路由（供 Python Agent 调用飞书资源）
+router.use('/', internalRouter);
 
 export default router;
