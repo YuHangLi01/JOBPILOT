@@ -140,11 +140,10 @@ async def test_kill_during_interrupt_preserves_last_question(sqlite_path: str) -
         state_after = await c.get_full_state()
         assert_states_equal(state_before, state_after)
 
-        # 最后一条面试官 turn 的 content 与 kill 前完全一致
-        transcript = state_after["values"]["transcript"]  # type: ignore[index]
-        interviewer_turns = [t for t in transcript if t["role"] == "interviewer"]  # type: ignore[index]
-        assert len(interviewer_turns) > 0
-        assert interviewer_turns[-1]["content"] == last_question
+        # 问题保存在 interrupt payload 里（kill 时 q_turn 尚未 commit 到 transcript）
+        interrupts = state_after.get("interrupts") or []  # type: ignore[union-attr]
+        assert len(interrupts) > 0, "interrupt payload should be preserved after kill+restart"
+        assert interrupts[0]["value"]["content"] == last_question
 
         await c.close()
 
