@@ -37,6 +37,11 @@ dev = [
 eval = [
     "ragas>=0.2",
     "datasets>=2.18",
+    "scikit-learn>=1.4",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "tqdm>=4.66",
+    "pandas>=2.2",
 ]
 crawl = [
     "playwright>=1.42",

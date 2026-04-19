@@ -213,4 +213,165 @@ interface DocBlock {
   heading2?: { elements: DocBlockElement[] };
 }
 
+  /**
+   * 读取飞书云文档，返回 Markdown 字符串
+   *
+   * 调用飞书 docx v1 blocks API，将文档 block 结构转换为 Markdown 文本。
+   * 支持分页（page_token 循环）。
+   *
+   * @param docToken 飞书云文档 token（document_id）
+   */
+  async readDocAsMarkdown(docToken: string): Promise<string> {
+    log.info('读取飞书云文档', { docToken });
+    const headers = await feishuAuth.getAuthHeaders();
+
+    const allBlocks: FeishuBlock[] = [];
+    let pageToken: string | undefined;
+
+    // 分页拉取所有 block
+    do {
+      const params: Record<string, string> = { document_revision_id: '-1', page_size: '100' };
+      if (pageToken) params['page_token'] = pageToken;
+
+      const queryString = new URLSearchParams(params).toString();
+      const resp = await axios.get(
+        `${FEISHU_API_BASE}/docx/v1/documents/${docToken}/blocks?${queryString}`,
+        { headers, timeout: 15000 },
+      );
+
+      if (resp.data.code !== 0) {
+        throw new Error(
+          `飞书文档读取失败: code=${resp.data.code}, msg=${resp.data.msg}`,
+        );
+      }
+
+      const items: FeishuBlock[] = resp.data.data?.items ?? [];
+      allBlocks.push(...items);
+      pageToken = resp.data.data?.has_more ? resp.data.data.page_token : undefined;
+    } while (pageToken);
+
+    log.info(`文档块读取完成: ${allBlocks.length} 个 block`, { docToken });
+    return blocksToMarkdown(allBlocks);
+  }
+}
+
+// ===== 飞书 block 转 Markdown =====
+
+interface FeishuBlockElement {
+  text_run?: { content: string };
+  mention_user?: { user_id: string; name?: string };
+  mention_doc?: { url: string; title?: string };
+  code?: { content: string; language?: string };
+}
+
+interface FeishuBlock {
+  block_type: number;
+  block_id?: string;
+  // 各 block_type 对应的内容字段
+  text?: { elements: FeishuBlockElement[]; style?: { list?: { type?: string } } };
+  heading1?: { elements: FeishuBlockElement[] };
+  heading2?: { elements: FeishuBlockElement[] };
+  heading3?: { elements: FeishuBlockElement[] };
+  heading4?: { elements: FeishuBlockElement[] };
+  heading5?: { elements: FeishuBlockElement[] };
+  code?: { elements: FeishuBlockElement[]; style?: { language?: string } };
+  quote?: { elements: FeishuBlockElement[] };
+  bullet?: { elements: FeishuBlockElement[] };
+  ordered?: { elements: FeishuBlockElement[] };
+  // ordered list index maintained externally
+  [key: string]: unknown;
+}
+
+/** 从 block elements 中提取纯文本 */
+function elementsToText(elements?: FeishuBlockElement[]): string {
+  if (!elements) return '';
+  return elements
+    .map((el) => {
+      if (el.text_run) return el.text_run.content;
+      if (el.mention_user) return `@${el.mention_user.name ?? el.mention_user.user_id}`;
+      if (el.mention_doc) return `[${el.mention_doc.title ?? el.mention_doc.url}](${el.mention_doc.url})`;
+      return '';
+    })
+    .join('');
+}
+
+/**
+ * 将飞书 docx block 列表转换为 Markdown 文本
+ *
+ * 支持的 block_type：
+ *  2 = text/paragraph
+ *  3 = heading1, 4 = heading2, 5 = heading3, 6 = heading4, 7 = heading5
+ *  9 = ordered list, 10 = bullet list
+ * 11 = code block
+ * 14 = quote
+ * 22 = horizontal rule
+ */
+function blocksToMarkdown(blocks: FeishuBlock[]): string {
+  const lines: string[] = [];
+  let orderedIndex = 1;
+
+  for (const block of blocks) {
+    switch (block.block_type) {
+      case 1: // page block — root, ignore or treat as title
+        break;
+
+      case 2: { // text / paragraph
+        const text = elementsToText(block.text?.elements);
+        lines.push(text);
+        break;
+      }
+
+      case 3: // heading1
+        lines.push(`# ${elementsToText(block.heading1?.elements)}`);
+        orderedIndex = 1;
+        break;
+      case 4: // heading2
+        lines.push(`## ${elementsToText(block.heading2?.elements)}`);
+        orderedIndex = 1;
+        break;
+      case 5: // heading3
+        lines.push(`### ${elementsToText(block.heading3?.elements)}`);
+        orderedIndex = 1;
+        break;
+      case 6: // heading4
+        lines.push(`#### ${elementsToText((block.heading4 as { elements?: FeishuBlockElement[] })?.elements)}`);
+        break;
+      case 7: // heading5
+        lines.push(`##### ${elementsToText((block.heading5 as { elements?: FeishuBlockElement[] })?.elements)}`);
+        break;
+
+      case 9: // ordered list
+        lines.push(`${orderedIndex}. ${elementsToText(block.ordered?.elements)}`);
+        orderedIndex++;
+        break;
+
+      case 10: // bullet list
+        lines.push(`- ${elementsToText(block.bullet?.elements)}`);
+        orderedIndex = 1;
+        break;
+
+      case 11: { // code block
+        const lang = (block.code as { style?: { language?: string } })?.style?.language ?? '';
+        const codeText = elementsToText((block.code as { elements?: FeishuBlockElement[] })?.elements);
+        lines.push(`\`\`\`${lang}\n${codeText}\n\`\`\``);
+        break;
+      }
+
+      case 14: // quote
+        lines.push(`> ${elementsToText(block.quote?.elements)}`);
+        break;
+
+      case 22: // horizontal rule
+        lines.push('---');
+        break;
+
+      default:
+        // 未知 block 类型，尝试提取 text elements
+        break;
+    }
+  }
+
+  return lines.join('\n\n').trim();
+}
+
 export const feishuDocumentService = new FeishuDocumentService();

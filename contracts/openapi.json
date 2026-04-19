@@ -1,0 +1,1129 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "JobPilot Agent",
+    "description": "JobPilot AI Agent 服务层，提供 JD 路由分析与模拟面试功能。",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "服务健康检查",
+        "description": "返回服务运行状态及各依赖连通性检查结果。\n当前各依赖检查均为 stub（skipped），待后续迭代接入真实探针。",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/jd-routing": {
+      "post": {
+        "tags": [
+          "JD Routing"
+        ],
+        "summary": "JD 路由分析（stub）",
+        "description": "接收 JD 文本，触发 LangGraph 编排工作流（当前为 stub 实现，返回示例数据）。",
+        "operationId": "jd_routing_api_v1_agent_jd_routing_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JDRoutingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JDRoutingResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/interview/start": {
+      "post": {
+        "tags": [
+          "Interview"
+        ],
+        "summary": "开始面试会话（stub）",
+        "operationId": "interview_start_api_v1_agent_interview_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InterviewStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewStartResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/interview/resume": {
+      "post": {
+        "tags": [
+          "Interview"
+        ],
+        "summary": "继续面试会话（stub）",
+        "operationId": "interview_resume_api_v1_agent_interview_resume_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InterviewResumeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewResumeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent/interview/{thread_id}/status": {
+      "get": {
+        "tags": [
+          "Interview"
+        ],
+        "summary": "查询面试会话状态（stub）",
+        "operationId": "interview_status_api_v1_agent_interview__thread_id__status_get",
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Thread Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/skills": {
+      "get": {
+        "tags": [
+          "Skills Debug"
+        ],
+        "summary": "列出所有已注册 Skill",
+        "description": "返回当前进程中所有已通过 register_all_skills() 注册的 Skill 元信息。",
+        "operationId": "list_skills_api_v1_skills_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/skills/{name}/dispatch-check": {
+      "post": {
+        "tags": [
+          "Skills Debug"
+        ],
+        "summary": "检查指定 Skill 是否会被触发",
+        "description": "给定 JDContext 片段，调用指定 Skill 的 should_invoke() 并返回结果。用于验证路由规则是否符合预期，不会真正执行 Skill。",
+        "operationId": "dispatch_check_api_v1_skills__name__dispatch_check_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchCheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchCheckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/skills/{name}/invoke": {
+      "post": {
+        "tags": [
+          "Skills Debug"
+        ],
+        "summary": "直接调用指定 Skill",
+        "description": "直接触发某个 Skill 执行，绕过 LangGraph 流程。用于人工调试和验收测试，返回 SkillOutput 原始 JSON。",
+        "operationId": "invoke_skill_api_v1_skills__name__invoke_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvokeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "DispatchCheckRequest": {
+        "properties": {
+          "jd_text": {
+            "type": "string",
+            "title": "Jd Text",
+            "default": "示例 JD 文本"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User Id",
+            "default": "debug_user"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id",
+            "default": "debug_req"
+          },
+          "user_context": {
+            "$ref": "#/components/schemas/UserContext",
+            "default": {
+              "preferred_lang": "zh"
+            }
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JDClassification"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "DispatchCheckRequest",
+        "description": "dispatch-check 端点的请求体，携带足够的 JDContext 字段用于路由判断。"
+      },
+      "DispatchCheckResponse": {
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "title": "Skill Name"
+          },
+          "should_invoke": {
+            "type": "boolean",
+            "title": "Should Invoke"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "skill_name",
+          "should_invoke"
+        ],
+        "title": "DispatchCheckResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "InterviewQuestion": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "intent": {
+            "type": "string",
+            "title": "Intent"
+          },
+          "answer_points": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Answer Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question",
+          "intent",
+          "answer_points"
+        ],
+        "title": "InterviewQuestion"
+      },
+      "InterviewReport": {
+        "properties": {
+          "stage_scores": {
+            "items": {
+              "$ref": "#/components/schemas/StageScore"
+            },
+            "type": "array",
+            "title": "Stage Scores"
+          },
+          "highlights": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Highlights"
+          },
+          "improvements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Improvements"
+          },
+          "transcript_summary": {
+            "type": "string",
+            "title": "Transcript Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stage_scores",
+          "highlights",
+          "improvements",
+          "transcript_summary"
+        ],
+        "title": "InterviewReport"
+      },
+      "InterviewResumeRequest": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "user_input": {
+            "type": "string",
+            "title": "User Input"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "user_input"
+        ],
+        "title": "InterviewResumeRequest"
+      },
+      "InterviewResumeResponse": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "waiting_user_input",
+              "completed",
+              "error"
+            ],
+            "title": "State"
+          },
+          "next_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NextAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InterviewReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "InterviewResumeResponse"
+      },
+      "InterviewStartRequest": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "company": {
+            "type": "string",
+            "title": "Company"
+          },
+          "position": {
+            "type": "string",
+            "title": "Position"
+          },
+          "context": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "user_id",
+          "company",
+          "position"
+        ],
+        "title": "InterviewStartRequest"
+      },
+      "InterviewStartResponse": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "waiting_user_input",
+              "completed",
+              "error"
+            ],
+            "title": "State"
+          },
+          "next_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NextAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "state"
+        ],
+        "title": "InterviewStartResponse"
+      },
+      "InterviewStatusResponse": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "title": "Thread Id"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "waiting_user_input",
+              "completed",
+              "not_found"
+            ],
+            "title": "State"
+          },
+          "current_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Stage"
+          },
+          "last_checkpoint_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Checkpoint At"
+          },
+          "transcript_length": {
+            "type": "integer",
+            "title": "Transcript Length",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "state"
+        ],
+        "title": "InterviewStatusResponse"
+      },
+      "InvokeRequest": {
+        "properties": {
+          "jd_text": {
+            "type": "string",
+            "title": "Jd Text"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User Id",
+            "default": "debug_user"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id",
+            "default": "debug_req"
+          },
+          "user_context": {
+            "$ref": "#/components/schemas/UserContext",
+            "default": {
+              "preferred_lang": "zh"
+            }
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JDClassification"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "title": "Timeout Seconds",
+            "default": 15
+          }
+        },
+        "type": "object",
+        "required": [
+          "jd_text"
+        ],
+        "title": "InvokeRequest",
+        "description": "invoke 端点的请求体。"
+      },
+      "JDClassification": {
+        "properties": {
+          "job_type": {
+            "type": "string",
+            "enum": [
+              "tech",
+              "product",
+              "design",
+              "ops",
+              "mgmt"
+            ],
+            "title": "Job Type"
+          },
+          "sub_type": {
+            "type": "string",
+            "title": "Sub Type"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "junior",
+              "middle",
+              "senior",
+              "lead"
+            ],
+            "title": "Level"
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "zh",
+              "en"
+            ],
+            "title": "Locale"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "social",
+              "campus"
+            ],
+            "title": "Channel"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_type",
+          "sub_type",
+          "level",
+          "locale",
+          "channel"
+        ],
+        "title": "JDClassification"
+      },
+      "JDRoutingRequest": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "jd_text": {
+            "type": "string",
+            "maxLength": 10000,
+            "minLength": 50,
+            "title": "Jd Text"
+          },
+          "user_context": {
+            "$ref": "#/components/schemas/UserContext"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "user_id",
+          "jd_text"
+        ],
+        "title": "JDRoutingRequest"
+      },
+      "JDRoutingResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "classification": {
+            "$ref": "#/components/schemas/JDClassification"
+          },
+          "invoked_skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Invoked Skills"
+          },
+          "skipped_skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skipped Skills"
+          },
+          "results": {
+            "$ref": "#/components/schemas/JDRoutingResults"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "classification",
+          "invoked_skills",
+          "skipped_skills",
+          "results",
+          "metadata"
+        ],
+        "title": "JDRoutingResponse"
+      },
+      "JDRoutingResults": {
+        "properties": {
+          "jd_summary": {
+            "type": "string",
+            "title": "Jd Summary"
+          },
+          "resume_advice": {
+            "items": {
+              "$ref": "#/components/schemas/ResumeAdviceItem"
+            },
+            "type": "array",
+            "title": "Resume Advice"
+          },
+          "interview_questions": {
+            "items": {
+              "$ref": "#/components/schemas/InterviewQuestion"
+            },
+            "type": "array",
+            "title": "Interview Questions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "jd_summary"
+        ],
+        "title": "JDRoutingResults"
+      },
+      "NextAction": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "ask_question",
+              "wait",
+              "end"
+            ],
+            "title": "Type"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "intro",
+              "project_deep_dive",
+              "tech_qa",
+              "scenario",
+              "reverse",
+              "closing"
+            ],
+            "title": "Stage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "content",
+          "stage"
+        ],
+        "title": "NextAction"
+      },
+      "ResponseMetadata": {
+        "properties": {
+          "latency_ms": {
+            "type": "integer",
+            "title": "Latency Ms"
+          },
+          "tokens_used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens Used"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "latency_ms"
+        ],
+        "title": "ResponseMetadata"
+      },
+      "ResumeAdviceItem": {
+        "properties": {
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Priority"
+          },
+          "advice": {
+            "type": "string",
+            "title": "Advice"
+          },
+          "related_jd_requirement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Jd Requirement"
+          }
+        },
+        "type": "object",
+        "required": [
+          "priority",
+          "advice"
+        ],
+        "title": "ResumeAdviceItem"
+      },
+      "SkillInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "when_to_use": {
+            "type": "string",
+            "title": "When To Use"
+          },
+          "when_not_to_use": {
+            "type": "string",
+            "title": "When Not To Use"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "dependencies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dependencies"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "description",
+          "when_to_use",
+          "when_not_to_use",
+          "tags",
+          "dependencies"
+        ],
+        "title": "SkillInfo"
+      },
+      "SkillListResponse": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/SkillInfo"
+            },
+            "type": "array",
+            "title": "Skills"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count",
+          "skills"
+        ],
+        "title": "SkillListResponse"
+      },
+      "StageScore": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "score": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Score"
+          },
+          "comment": {
+            "type": "string",
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stage",
+          "score",
+          "comment"
+        ],
+        "title": "StageScore"
+      },
+      "UserContext": {
+        "properties": {
+          "user_kb_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Kb Id"
+          },
+          "preferred_lang": {
+            "type": "string",
+            "enum": [
+              "zh",
+              "en"
+            ],
+            "title": "Preferred Lang",
+            "default": "zh"
+          },
+          "github_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Github Username"
+          },
+          "portfolio_doc_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Portfolio Doc Ref"
+          }
+        },
+        "type": "object",
+        "title": "UserContext"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

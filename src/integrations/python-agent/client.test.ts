@@ -36,26 +36,26 @@ vi.mock('../../config', () => ({
 }));
 
 const MOCK_JD_ROUTING_RESPONSE: JdRoutingResponse = {
-  jd_parsed: {
-    company_name: 'TestCo',
-    job_title: 'Engineer',
-    location: 'Beijing',
-    job_type: 'full_time',
-    responsibilities: [],
-    requirements: [],
-    preferred_qualifications: [],
-    key_skills: ['TypeScript'],
-    seniority: 'mid',
-    summary: 'A test job',
+  request_id: 'test-request-id-001',
+  classification: {
+    job_type: 'tech',
+    sub_type: 'Backend Engineer',
+    level: 'middle',
+    locale: 'zh',
+    channel: 'social',
   },
-  job_summary: 'Good opportunity',
-  resume_suggestions: ['Highlight TypeScript skills'],
-  interview_questions: [
-    { question: 'Tell me about yourself', intent: 'background', answer_tips: ['Be concise'] },
-  ],
-  bitable_result: { success: true, record_id: 'rec123' },
-  task_result: { success: true, task_id: 'task456' },
-  document_result: { success: true, doc_url: 'https://docs.feishu.cn/xxx' },
+  invoked_skills: ['jd_parser', 'resume_advisor'],
+  skipped_skills: [],
+  results: {
+    jd_summary: 'Backend Engineer role at TestCo focusing on TypeScript services',
+    resume_advice: [
+      { priority: 'high', advice: 'Highlight TypeScript skills', related_jd_requirement: null },
+    ],
+    interview_questions: [
+      { question: 'Tell me about yourself', intent: 'background', answer_points: ['Be concise'] },
+    ],
+  },
+  metadata: { latency_ms: 450, tokens_used: 1200, trace_id: 'trace-abc' },
 };
 
 describe('PythonAgentClient', () => {
@@ -71,11 +71,11 @@ describe('PythonAgentClient', () => {
   it('正常返回：postJdRouting 返回正确结构', async () => {
     mockPost.mockResolvedValueOnce({ data: MOCK_JD_ROUTING_RESPONSE });
 
-    const result = await client.postJdRouting({ jd_text: 'Software Engineer at TestCo' });
+    const result = await client.postJdRouting({ jd_text: 'Software Engineer at TestCo', user_id: 'user-001' });
 
-    expect(result.job_summary).toBe('Good opportunity');
-    expect(result.jd_parsed.company_name).toBe('TestCo');
-    expect(result.bitable_result.success).toBe(true);
+    expect(result.results.jd_summary).toContain('Backend Engineer');
+    expect(result.classification.job_type).toBe('tech');
+    expect(result.invoked_skills).toContain('jd_parser');
     expect(mockPost).toHaveBeenCalledOnce();
 
     // 确认 request_id 被自动注入到 header
@@ -90,7 +90,7 @@ describe('PythonAgentClient', () => {
     mockPost.mockRejectedValueOnce(timeoutError);
 
     await expect(
-      client.postJdRouting({ jd_text: 'some jd' }),
+      client.postJdRouting({ jd_text: 'some jd', user_id: '' }),
     ).rejects.toMatchObject({
       name: 'PythonAgentError',
       code: 'TIMEOUT',
@@ -105,7 +105,7 @@ describe('PythonAgentClient', () => {
     mockPost.mockRejectedValueOnce(error400);
 
     await expect(
-      client.postJdRouting({ jd_text: 'some jd' }),
+      client.postJdRouting({ jd_text: 'some jd', user_id: '' }),
     ).rejects.toMatchObject({
       name: 'PythonAgentError',
       code: 'HTTP_4XX',
@@ -121,7 +121,7 @@ describe('PythonAgentClient', () => {
     mockPost.mockRejectedValueOnce(error500);
 
     await expect(
-      client.postJdRouting({ jd_text: 'some jd' }),
+      client.postJdRouting({ jd_text: 'some jd', user_id: '' }),
     ).rejects.toMatchObject({
       name: 'PythonAgentError',
       code: 'HTTP_5XX',
@@ -137,7 +137,7 @@ describe('PythonAgentClient', () => {
     mockPost.mockRejectedValueOnce(error503);
 
     try {
-      await client.postJdRouting({ jd_text: 'some jd' });
+      await client.postJdRouting({ jd_text: 'some jd', user_id: '' });
       expect.fail('应该抛出 PythonAgentError');
     } catch (err) {
       expect(err).toBeInstanceOf(PythonAgentError);

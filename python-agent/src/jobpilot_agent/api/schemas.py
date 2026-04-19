@@ -45,6 +45,8 @@ class ResponseMetadata(BaseModel):
 class UserContext(BaseModel):
     user_kb_id: str | None = None
     preferred_lang: Literal["zh", "en"] = "zh"
+    github_username: str | None = None
+    portfolio_doc_ref: str | None = None  # 飞书云文档 doc_token
 
 
 class JDRoutingRequest(BaseModel):

@@ -1,343 +1,184 @@
-# 🚀 JobPilot for Feishu / 求职作战官
+# JobPilot for Feishu
 
-> 一个运行在飞书中的垂直场景办公 Agent，帮助求职者从「收到 JD」到「完成面试准备」的全流程提效。
-
-## ✨ 项目亮点
-
-- **聊天即触发**：在飞书对话中发送一段 JD，即可自动启动完整分析流程
-- **PDF 简历可导入记忆**：支持 HTTP 上传或飞书发送 PDF 简历，自动解析并写入 `user_profile`
-- **LLM 编排引擎**：多步骤 Prompt 分离设计，结构化解析 → 总结 → 简历建议 → 面试题
-- **飞书生态打通**：多维表格记录、任务创建、文档生成一步到位
-- **轻量求职记忆（可选）**：基于飞书多维表格的画像 / 岗位过程 / 周期摘要，让输出更连续；未配置或失败时自动降级
-- **多维表格自动补列 + 幂等写入**：主业务台账表与三张记忆表在写入/检索前对齐列结构；主表按 `analysis_id`、记忆表按各自逻辑键 upsert，减少重复插入
-- **优雅降级**：任一外部调用失败不影响主流程，用户始终获得最大可用结果
-- **比赛就绪**：清晰的工程结构、完整类型定义、模块化设计，适合答辩展示
-
-## 📋 功能概览
-
-| 功能 | 描述 |
-|------|------|
-| JD 结构化解析 | 提取公司、岗位、职责、要求、技能等字段 |
-| 岗位要求总结 | 100~200 字精炼总结；可结合用户记忆做轻微个性化 |
-| 简历修改建议 | 5~8 条可执行建议；可结合历史缺口与画像薄弱项 |
-| 面试题预测 | 3 道高概率面试题 + 出题意图 + 回答要点；可结合记忆约束表述 |
-| PDF 简历导入 | 解析 PDF 简历文本并抽取求职画像，写入 `user_profile` |
-| 主业务多维表格 | 写入前按 `BITABLE_FIELD_MAP` 自动补列，并按 `analysis_id` 幂等 upsert 求职台账 |
-| 轻量记忆（三张表） | `user_profile` / `job_records` / `memory_summary`；读写在检索/写入前自动补列 |
-| 跟进任务创建 | 自动创建带截止时间的飞书任务 |
-| 面试准备文档 | 自动生成结构化文档并返回链接 |
-| 结果消息回传 | 将全部结果以清晰格式推送到聊天 |
-
-## 🔔 功能触发说明（答辩 / Demo 必读）
-
-以下说明**谁在什么条件下触发**，便于对照代码与现场演示。
-
-### 1. 飞书聊天里分析 JD（主流程）
-
-| 步骤 | 触发条件 | 行为 |
-|------|----------|------|
-| 收到消息 | 飞书事件 `im.message.receive_v1`，且消息为文本、内容通过长度校验 | `FeishuEventController` 异步处理 |
-| 执行编排 | 上述校验通过后 | `orchestratorService.execute(jdText, { userId })`，`userId` 为发送者 `open_id`（有则传，无则等价旧版） |
-| 拉取记忆 | `userId` 非空 **且** `.env` 中三张记忆表 ID 均已配置 | `memoryService.getMemoryContextForJobAnalysis`；否则不读记忆 |
-| LLM 并行 | JD 解析完成后 | 岗位总结、简历建议、面试题并行调用；若存在记忆则注入 `LightMemoryPromptContext` |
-| 写主业务表 | 编排阶段 3，与其它飞书写入并行 | `feishuBitableService.upsertMainRecord` → **写入前**按 `BITABLE_MAIN_SCHEMA` 自动补列，并按 `analysis_id` 幂等更新 |
-| 写记忆表 | 同上阶段 3，且 `userId` 非空 **且** 记忆表已配置 | `persistJobMemory` → `refreshAfterJobProcessing`（岗位记录 + rolling 摘要 + 活跃时间）；失败仅打日志 |
-| 回复用户 | 编排完成后 | 拼装文本回复（含多维表格/任务/文档状态） |
-
-### 2. 飞书 / HTTP 导入 PDF 简历
-
-| 触发点 | 条件 | 行为 |
-|--------|------|------|
-| 飞书文件消息 | 飞书事件 `im.message.receive_v1`，且 `message_type=file`、文件为 PDF | 下载文件资源 → 解析 PDF 文本 → LLM 抽取画像 → upsert `user_profile` |
-| HTTP 调试接口 | `POST /api/test/resume`，multipart 上传字段 `resume`，并传 `user_id` | 使用同一套简历导入服务，本地调试不依赖飞书 |
-| 冷启动建档 | 用户此前不存在 `user_profile` 记录 | 首次成功导入简历时创建画像行，补齐 `profile_version` / `updated_at` / `last_active_at` |
-
-### 3. 主业务多维表格「自动补列 + 幂等写入」
-
-| 触发点 | 条件 | 行为 |
-|--------|------|------|
-| `upsertMainRecord` / `addRecord` / `addRecords` | 每次向 `FEISHU_BITABLE_APP_TOKEN` + `FEISHU_BITABLE_TABLE_ID` 写入 | 先 `list` 字段，再对 `BITABLE_FIELD_MAP` 中缺失的中文列名调用「新增字段」API；`创建时间` 列为日期类型，其余默认文本 |
-| 主表幂等键 | 同一用户重复处理同一 JD 指纹 | 使用 `analysis_id = userId + jdFingerprint` 搜索并更新首条命中记录，避免未来重复新增 |
-| 失败策略 | 无建列权限或 API 报错 | 打 `warn`，不抛错到业务外层；后续写入仍可能失败，由原有 `writeBitable` try/catch 标记失败 |
-
-### 4. 记忆三张表「自动补列 + 非破坏式去重」
-
-| 触发点 | 条件 | 行为 |
-|--------|------|------|
-| 记忆表检索 / 写入 | 任意使用 `searchRecordsInTable` / `createRecordInTable` / `updateRecordInTable` 且传入对应 `MEMORY_*_SCHEMA` | 写入/检索前对齐该表全部约定列（见 `constants/index.ts`） |
-| 标签类数组 | 写入记忆表 | `encodeMemoryFields(..., { joinArrayValues: true })` 将 `string[]` 拼为「、」文本，兼容自动创建的文本列；读出时 `readStringArray` 同时兼容多选控件与纯文本 |
-| 非破坏式去重 | 同一逻辑键命中多条旧记录 | 更新首条命中记录并打日志，不自动清理历史重复行，但阻止继续新增重复数据 |
-
-### 5. 本地 HTTP 调试（不经飞书事件）
-
-| 触发 | 条件 | 行为 |
-|------|------|------|
-| `POST /api/test/analyze` | 请求体带 `jd_text` | 调用编排器；**不传** `userId`，故不会走记忆读写（与飞书链路区分） |
-| `POST /api/test/resume` | multipart 上传字段 `resume`，并附带 `user_id` | 导入 PDF 简历到 `user_profile`，便于本地联调 |
+JobPilot 是面向飞书场景的求职作战 Agent：**Node.js Gateway** 负责飞书接入、多维表格 / 文档 / 任务等副作用与业务编排；**Python Agent**（FastAPI）承载 LangGraph / RAG / LLM 推理。两端通过版本化的 **OpenAPI 契约**（`contracts/openapi.json`）同步类型，避免手写重复接口。
 
 ---
 
-## 🏗️ 项目结构
+## 架构
 
+### 双栈职责
+
+| 层级 | 技术栈 | 职责 |
+|------|--------|------|
+| Gateway | Node.js + Express + TypeScript | 飞书 Webhook、事件解析与去重、JWT/Token 校验、多维表格写入、文档与任务、消息回复、简历上传解析、编排入口 |
+| Agent | Python 3.11 + FastAPI + LangGraph（规划中） | JD 路由与分析、模拟面试会话等 AI 能力；可通过 HTTP 被 Gateway 调用 |
+| 契约 | OpenAPI 3.1 → `openapi-typescript` | `contracts/openapi.json` 为单一真相源；`src/integrations/python-agent/generated.ts` 自动生成 |
+
+### 组件关系（逻辑视图）
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                         飞书开放平台                               │
+└───────────────────────────────┬───────────────────────────────────┘
+                                │ 事件订阅 Webhook
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Node.js Gateway（Express）                           │
+│  ┌─────────────┐   ┌──────────────────┐   ┌─────────────────┐ │
+│  │ Webhook /   │──▶│ Orchestrator      │──▶│ Feishu SDK 集成 │ │
+│  │ 测试 API    │   │ (legacy / Python) │   │ bitable/doc/... │ │
+│  └─────────────┘   └─────────┬─────────┘   └─────────────────┘ │
+│                              │                                   │
+│         USE_PYTHON_AGENT=true│ HTTP                              │
+│                              ▼                                   │
+│                    python-agent/client.ts                        │
+│                              │                                   │
+│  ┌───────────────────────────┴───────────────────────────────┐   │
+│  │ POST /internal/feishu/*  （X-Internal-Secret，当前 stub）   │   │
+│  └───────────────────────────────────────────────────────────┘   │
+└───────────────────────────────┬───────────────────────────────────┘
+                                │ 回调（预留）
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Python Agent（FastAPI）                              │
+│  /health · /api/v1/agent/jd-routing · /api/v1/agent/interview/*   │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+### 仓库目录（精简）
+
+```text
 jobpilot-feishu/
+├── src/                              # Node.js Gateway
+│   ├── server.ts / app.ts
+│   ├── config/                       # 环境变量（Zod / 必填校验）
+│   ├── routes/                       # 路由（含 internal 回调 stub）
+│   ├── controllers/                  # 飞书事件
+│   ├── services/                     # 编排、JD 解析、记忆、简历等
+│   ├── integrations/
+│   │   ├── feishu/                   # 飞书 API 封装
+│   │   └── python-agent/             # Python HTTP 客户端
+│   │       ├── generated.ts          # ⚠️ openapi-typescript 生成，勿手改
+│   │       ├── types.ts              # 从 generated 再导出，便于业务引用
+│   │       └── client.ts
+│   └── types/
+├── contracts/
+│   ├── openapi.json                  # ⚠️ 由 Python 导出脚本生成，勿手改
+│   └── README.md
+├── python-agent/
+│   ├── src/jobpilot_agent/           # FastAPI、schemas、graphs（stub）等
+│   ├── scripts/export_openapi.py     # 导出契约到 contracts/
+│   └── README.md                     # Python 子项目说明
+├── .github/workflows/contract-check.yml
+├── Makefile
 ├── package.json
-├── tsconfig.json
-├── .env.example            # 环境变量模板
-├── .gitignore
-├── README.md
-└── src/
-    ├── server.ts            # 入口：启动 HTTP 服务
-    ├── app.ts               # Express 应用配置
-    ├── config/
-    │   └── index.ts         # 统一配置管理
-    ├── constants/
-    │   └── index.ts         # 业务常量、多维表格列映射与 SCHEMA（主表 + 记忆表）
-    ├── types/
-    │   └── index.ts         # TypeScript 类型 + Zod Schema
-    ├── routes/
-    │   └── index.ts         # 路由定义
-    ├── controllers/
-    │   └── feishu-event.controller.ts  # 飞书事件处理
-    ├── services/
-    │   ├── orchestrator.service.ts      # ⭐ 工作流编排器（记忆注入与写回）
-    │   ├── jd-parser.service.ts
-    │   ├── job-summary.service.ts
-    │   ├── resume-advisor.service.ts
-    │   ├── resume-ingestion.service.ts  # PDF 简历解析 + user_profile 导入
-    │   ├── interview-generator.service.ts
-    │   ├── memory.service.ts            # 记忆门面（读上下文、落 job、刷新摘要）
-    │   ├── profile-memory.service.ts    # user_profile
-    │   └── derived-memory.service.ts    # memory_summary（规则归纳）
-    ├── integrations/
-    │   ├── feishu/
-    │   │   ├── auth.ts
-    │   │   ├── file.ts                  # 飞书文件消息下载
-    │   │   ├── message.ts
-    │   │   ├── bitable.ts               # 主表 + 记忆表 API、自动补列、FeishuMemoryBitableService
-    │   │   ├── bitable-memory.codec.ts  # 记忆字段编解码
-    │   │   ├── task.ts
-    │   │   └── document.ts
-    │   └── llm/
-    │       └── client.ts
-    ├── prompts/
-    │   ├── jd-parse.prompt.ts
-    │   ├── resume-profile-extract.prompt.ts # 简历画像抽取 Prompt
-    │   ├── summary.prompt.ts
-    │   ├── resume-advice.prompt.ts
-    │   ├── interview.prompt.ts
-    │   └── light-memory.prompt.ts       # 轻量记忆 → Prompt 片段
-    └── utils/
-        ├── logger.ts
-        ├── retry.ts
-        └── validator.ts
+└── .env.example
 ```
 
-## 🔧 本地启动
+---
 
-### 前置条件
+## 运行流程
 
-- Node.js >= 18
-- npm 或 yarn
-- 飞书开放平台应用（已开通相关权限）
-- LLM API Key（OpenAI / 火山方舟 / DeepSeek 等）
+### 1. 飞书用户发 JD（生产主路径）
 
-### 步骤
+1. 用户在群内 @机器人发送 **文本 JD**。
+2. `POST /webhook/feishu` 接收事件：`FeishuEventController` 校验 token、事件去重、**先返回 200** 再异步处理。
+3. 文本经 `validateJDInput` 校验后，`orchestratorService.execute(jdText, { userId: openId })` 执行主流程。
+4. **编排**（见下节）产出 `OrchestratorResult`，组装为飞书消息回复；失败则回复错误提示。
+5. 文件类消息走简历 PDF 分支，调用 `resumeIngestionService`，与 JD 流程独立。
 
-```bash
-# 1. 克隆项目
-git clone <repo-url> && cd jobpilot-feishu
+### 2. 编排器：`USE_PYTHON_AGENT`
 
-# 2. 安装依赖
-npm install
+- `USE_PYTHON_AGENT=false`（默认）：走 `orchestrator.legacy.ts`，在 Node 内用 LLM + 飞书写入等完整逻辑。
+- `USE_PYTHON_AGENT=true`：优先 `pythonAgentClient.postJdRouting`；若超时或错误则 **降级** 到 legacy，保证可用性。
+- Gateway 将 Python 返回的 `classification` / `results` **映射**为现有 `OrchestratorResult`（飞书副作用占位由 Node 侧策略决定）。
 
-# 3. 配置环境变量
-cp .env.example .env
-# 编辑 .env 填入你的飞书和 LLM 配置
+### 3. 本地调试（不经过飞书）
 
-# 4. 开发模式启动（热重载）
-npm run dev
+| 用途 | 命令 / 地址 |
+|------|----------------|
+| 启动 Gateway | `npm run dev` → 默认 `http://localhost:3000`（`PORT` 可改） |
+| 健康检查（含探测 Python） | `GET http://localhost:3000/health` |
+| 直接跑 JD 分析 | `POST http://localhost:3000/api/test/analyze`，Body：`{"jd_text":"..."}` |
+| 上传简历 PDF（HTTP） | `POST http://localhost:3000/api/test/resume`（multipart，需 `user_id`） |
 
-# 5. 验证服务
-curl http://localhost:3000/health
-```
-
-### 本地调试（不依赖飞书）
+### 4. Python Agent 单独启动
 
 ```bash
-# 使用测试接口直接调用编排器（不传 userId，不启用记忆）
-curl -X POST http://localhost:3000/api/test/analyze \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jd_text": "岗位：高级前端工程师\n公司：字节跳动\n工作地点：北京\n\n岗位职责：\n1. 负责飞书文档前端架构设计与核心模块开发\n2. 推动前端工程化和性能优化\n3. 参与技术方案评审和代码 review\n\n任职要求：\n1. 本科及以上学历，3 年以上前端开发经验\n2. 精通 React/Vue，熟悉 TypeScript\n3. 有富文本编辑器或协同编辑经验优先\n4. 良好的沟通能力和团队协作精神"
-  }'
+cd python-agent && uv sync
+cp .env.example .env   # 配置 LLM_API_KEY 等
 ```
 
 ```bash
-# 上传 PDF 简历，写入 user_profile（本地调试）
-curl -X POST http://localhost:3000/api/test/resume \
-  -F "user_id=test-user-001" \
-  -F "resume=@./resume.pdf;type=application/pdf"
+# 默认文档示例为 8000；若本机 8000 被占用（如 Apache），可改用 8001
+make dev-py
+# 并将 Gateway 的 PYTHON_AGENT_URL 设为对应地址，例如 http://127.0.0.1:8001
 ```
 
-## 🌐 环境变量说明
+- Swagger：`http://127.0.0.1:<port>/docs`
+- 根路径 `/` 未定义路由时返回 404 属正常，请以 `/health`、`/docs` 为准。
 
-| 变量 | 必填 | 说明 |
+### 5. 内部回调（预留）
+
+Python 将来可通过 `NODEJS_CALLBACK_URL` 调用 Gateway 的 `POST /internal/feishu/docs/read`、`bitable/query`、`files/upload`，请求头带 `X-Internal-Secret`（与 Node 侧 `INTERNAL_SECRET` 对齐）。当前为 **stub**，实现会在后续迭代替换。
+
+---
+
+## API 契约与类型同步
+
+修改 **Python** 侧 `schemas` 后必须同步契约与 TS 类型，禁止手工编辑 `contracts/openapi.json` 与 `generated.ts`。
+
+```bash
+make contracts
+# 等价：cd python-agent && uv run python scripts/export_openapi.py
+#      npm run gen:types
+```
+
+完成同步后，`openapi.json` 与 `generated.ts` 须与 Python Schema 及 Gateway 调用代码保持一致；二者均为自动生成，勿手工修改。
+
+详见 [`contracts/README.md`](contracts/README.md)。
+
+---
+
+## Makefile 常用目标
+
+在无 `make` 的 Windows 环境可手动执行注释中的等价命令。
+
+| 目标 | 说明 |
+|------|------|
+| `make contracts` | 导出 OpenAPI + 生成 `generated.ts` |
+| `make dev-node` / `make dev-py` | 启动 Gateway / Python Agent |
+| `make test-all` | `pytest` + `vitest` |
+| `make build-node` | `npm run build` |
+| `make lint-node` / `make lint-py` | ESLint / Ruff |
+
+`make help` 列出全部目标。
+
+---
+
+## 测试与质量
+
+```bash
+make test-all           # 推荐
+npm test                # Vitest（Gateway）
+cd python-agent && uv run pytest
+npm run lint && npm run build
+```
+
+---
+
+## 环境变量（概要）
+
+| 区域 | 文件 | 说明 |
 |------|------|------|
-| `FEISHU_APP_ID` | ✅ | 飞书应用 App ID |
-| `FEISHU_APP_SECRET` | ✅ | 飞书应用 App Secret |
-| `FEISHU_VERIFICATION_TOKEN` | ✅ | 事件订阅验证 Token |
-| `FEISHU_ENCRYPT_KEY` | ❌ | 事件加密 Key |
-| `FEISHU_BITABLE_APP_TOKEN` | ✅ | **主业务**多维表格 App Token |
-| `FEISHU_BITABLE_TABLE_ID` | ✅ | **主业务**数据表 Table ID |
-| `FEISHU_MEMORY_BITABLE_APP_TOKEN` | ❌ | 记忆库 App Token；不填则与主表同 App |
-| `FEISHU_MEMORY_USER_PROFILE_TABLE_ID` | ❌ | 画像表；三张记忆表**须同时配齐**才启用记忆 |
-| `FEISHU_MEMORY_JOB_RECORDS_TABLE_ID` | ❌ | 岗位过程表 |
-| `FEISHU_MEMORY_SUMMARY_TABLE_ID` | ❌ | 周期摘要表 |
-| `FEISHU_DOC_FOLDER_TOKEN` | ❌ | 文档存放目录 Token |
-| `LLM_API_BASE_URL` | ✅ | LLM API 地址 |
-| `LLM_API_KEY` | ✅ | LLM API Key |
-| `LLM_MODEL` | ❌ | 模型名称（默认 gpt-4o） |
+| Gateway | [`.env.example`](.env.example) | 飞书应用、多维表格、LLM、`USE_PYTHON_AGENT`、`PYTHON_AGENT_URL`、`INTERNAL_SECRET` 等 |
+| Python Agent | [`python-agent/.env.example`](python-agent/.env.example) | `LLM_API_KEY`、`POSTGRES_URL`、`NODEJS_CALLBACK_URL`、`NODEJS_INTERNAL_SECRET` 等 |
 
-## 🔗 飞书集成配置指南
+**注意**：Gateway 默认 `PYTHON_AGENT_URL=http://localhost:8000`，若本地 Agent 跑在 `8001`，请修改 `.env` 与两边约定一致。
 
-### 1. 创建飞书应用
+---
 
-1. 登录 [飞书开放平台](https://open.feishu.cn)
-2. 创建企业自建应用
-3. 记录 App ID 和 App Secret
+## 延伸阅读
 
-### 2. 配置权限
-
-在应用的「权限管理」中开通以下权限：
-
-- `im:message:send_as_bot` — 以应用身份发送消息
-- `im:message` — 接收消息事件、下载文件消息资源
-- `bitable:app` — 多维表格读写
-- **「新增/编辑字段」类权限**（名称以控制台为准，用于自动补列；无则自动建列失败时仅降级打日志，主流程仍继续）
-- `task:task:write` — 创建任务
-- `docx:document` — 创建文档
-- `drive:drive` — 云文档操作
-
-### 3. 配置事件订阅
-
-1. 进入「事件订阅」页面
-2. 请求地址填入：`https://your-domain.com/webhook/feishu`
-3. 添加事件：`接收消息 im.message.receive_v1`
-4. 记录 Verification Token
-
-### 4. 多维表格（主表 + 记忆表）
-
-#### 主业务台账表（必填）
-
-指向 `FEISHU_BITABLE_*`。**推荐**预先按下列列名建表（`投递状态` 可为单选或文本；单选需含常用选项）。若未建全列，服务在写入前会尝试自动创建缺失列（默认多为「文本」，`创建时间` 为「日期」）。主表还会按 `分析ID` 做幂等更新，避免未来重复插入同一条分析记录。
-
-| 字段名 | 建议类型 |
-|--------|----------|
-| 分析ID | 文本 |
-| 公司名称 | 文本 |
-| 岗位名称 | 文本 |
-| 工作地点 | 文本 |
-| 级别要求 | 文本 |
-| 核心技能 | 文本 |
-| 岗位总结 | 文本 |
-| 简历建议 | 文本 |
-| 面试题 | 文本 |
-| 投递状态 | 单选或文本 |
-| 创建时间 | 日期 |
-| 来源 | 文本 |
-
-从多维表格 URL 中获取 `app_token` 和 `table_id` 填入 `.env`。
-
-#### 求职记忆三张表（可选）
-
-在**同一或不同**多维表格应用中创建三个数据表，将 Table ID 填入 `FEISHU_MEMORY_*`。列名需与 `src/constants/index.ts` 中 `MEMORY_*_FIELD_MAP` 一致；亦可先建空表，由服务在 **首次读写前** 按 `MEMORY_*_SCHEMA` 自动补列（详见上文「记忆三张表自动补列」）。`user_profile` 现已支持通过 PDF 简历冷启动建档。
-
-### 5. 公网暴露（开发调试）
-
-```bash
-# 使用 ngrok 暴露本地端口
-ngrok http 3000
-# 将生成的 https URL 填入飞书事件订阅的请求地址
-```
-
-## 🎬 演示流程
-
-```
-用户                          JobPilot                        飞书生态
- │                               │                               │
- │  发送 JD 文本到飞书聊天       │                               │
- │──────────────────────────────>│                               │
- │                               │                               │
- │  收到「处理中」提示           │                               │
- │<──────────────────────────────│                               │
- │                               │                               │
- │                               │── LLM: JD 结构化解析 ──>     │
- │                               │──（可选）读记忆表 ────────>   │
- │                               │── LLM: 总结/简历/面试（带记忆）│
- │                               │                               │
- │                               │── 主表 upsertMainRecord ───>│
- │                               │──（可选）写记忆表 ────────>   │
- │                               │── 创建跟进任务 ─────────────>│
- │                               │── 创建面试准备文档 ────────>│
- │                               │                               │
- │  收到完整分析结果             │                               │
- │<──────────────────────────────│                               │
- │                               │                               │
- │  发送 PDF 简历到飞书聊天      │                               │
- │──────────────────────────────>│                               │
- │                               │── 下载文件 / 解析 PDF ────>   │
- │                               │── upsert user_profile ────>   │
- │  收到简历导入结果             │                               │
- │<──────────────────────────────│                               │
-```
-
-## 📦 示例响应
-
-```
-✅ 岗位分析完成
-━━━━━━━━━━━━━━━━━━
-
-🏢 字节跳动 · 高级前端工程师
-📍 北京
-📊 高级
-🔑 核心技能：React、TypeScript、前端架构、性能优化、富文本编辑器、协同编辑
-
-📋 【岗位要求总结】
-该岗位主要负责飞书文档的前端架构设计与核心开发，最看重 React/TS 深度、
-架构设计能力、性能优化经验。适合有 3 年以上经验、对富文本/协同编辑有
-研究的前端工程师。投递时应重点强调大型前端项目架构经验和性能调优成果。
-
-✏️ 【简历修改建议】
-1. 在项目经历中突出你参与过的最复杂前端架构项目...
-2. 确保简历中明确列出 React、TypeScript 等关键词...
-...
-
-🎯 【可能面试题】
-Q1: 请描述你做过的最有挑战性的前端架构设计...
-  💡 意图：考察架构能力和技术深度
-  📝 要点：描述背景和约束；架构选型过程；最终效果和数据
-
-━━━━━━━━━━━━━━━━━━
-📊 执行状态：
-  ✅ 多维表格已写入
-  ✅ 跟进任务已创建
-  ✅ 面试准备文档已生成
-
-📄 面试准备文档：https://feishu.cn/docx/xxxxx
-
-💪 祝你求职顺利！有新的 JD 随时发给我。
-```
-
-## 🔮 后续扩展方向
-
-1. **简历匹配度评分**：基于已导入的 PDF 简历内容，自动与 JD 匹配打分
-2. **多 JD 批量处理**：支持批量粘贴多个 JD 并行分析
-3. **投递状态流转**：在多维表格中更新状态时触发下一步自动化
-4. **面试日历管理**：自动创建日历事件并提醒准备
-5. **求职数据看板**：基于多维表格生成求职进展统计
-6. **记忆摘要 LLM 版**：在可解释的规则摘要之上叠加短 LLM 润色（需单独降级策略）
-
-## 📄 License
-
-MIT
+- Python 子项目细节：[`python-agent/README.md`](python-agent/README.md)
+- 契约目录说明：[`contracts/README.md`](contracts/README.md)

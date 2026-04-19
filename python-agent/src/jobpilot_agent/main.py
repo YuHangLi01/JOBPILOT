@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from jobpilot_agent.api import health, interview, jd_routing
+from jobpilot_agent.api import health, interview, jd_routing, skills as skills_router
 from jobpilot_agent.config import get_settings
 from jobpilot_agent.logging_setup import (
     bind_request_context,
@@ -33,6 +33,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         app_env=settings.app_env,
         port=settings.app_port,
     )
+    from jobpilot_agent.skills.registry import register_all_skills
+
+    register_all_skills()
     yield
     log.info("jobpilot_agent.shutdown")
 
@@ -101,3 +104,4 @@ async def request_context_middleware(request: Request, call_next: object) -> Res
 app.include_router(health.router)
 app.include_router(jd_routing.router, prefix="/api/v1/agent")
 app.include_router(interview.router, prefix="/api/v1/agent")
+app.include_router(skills_router.router, prefix="/api/v1/skills")

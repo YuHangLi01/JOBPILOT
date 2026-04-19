@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { config } from '../config';
+import { feishuDocumentService } from '../integrations/feishu/document';
 
 const router = Router();
 
@@ -31,10 +32,26 @@ function verifyInternalSecret(req: Request, res: Response, next: NextFunction): 
 
 /**
  * POST /internal/feishu/docs/read
- * 读取飞书云文档（stub，正式实现见下周迭代）
+ * 读取飞书云文档，将文档内容以 Markdown 格式返回。
+ *
+ * Request body: { doc_token: string }
+ * Response: { ok: true, content: string } | { ok: false, error_code, error_message }
  */
-router.post('/internal/feishu/docs/read', verifyInternalSecret, (_req: Request, res: Response) => {
-  res.json({ ok: true, data: null, note: 'stub' });
+router.post('/internal/feishu/docs/read', verifyInternalSecret, async (req: Request, res: Response) => {
+  const { doc_token } = req.body as { doc_token?: string };
+
+  if (!doc_token) {
+    res.status(400).json({ ok: false, error_code: 'MISSING_PARAM', error_message: 'doc_token is required' });
+    return;
+  }
+
+  try {
+    const content = await feishuDocumentService.readDocAsMarkdown(doc_token);
+    res.json({ ok: true, content });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ ok: false, error_code: 'FEISHU_API_ERROR', error_message: message });
+  }
 });
 
 /**

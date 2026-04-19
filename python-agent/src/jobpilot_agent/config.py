@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     retrieval_fallback_to_chroma: bool = True
     chroma_persist_dir: str = "./data/chroma"
 
+    # ── GitHub 集成 ───────────────────────────────────────────
+    github_token: str | None = None
+    github_rate_limit_buffer: int = 5
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

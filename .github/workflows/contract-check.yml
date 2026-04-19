@@ -1,0 +1,77 @@
+name: Contract Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  contract-check:
+    name: Verify OpenAPI contracts are in sync
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 检出代码 ────────────────────────────────────────────────────────────
+      - uses: actions/checkout@v4
+
+      # ── Python 环境：导出最新 OpenAPI 规范 ──────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install Python dependencies
+        working-directory: python-agent
+        run: uv sync --no-dev
+
+      - name: Export OpenAPI spec
+        working-directory: python-agent
+        env:
+          LLM_API_KEY: placeholder-for-ci
+          POSTGRES_URL: postgresql://placeholder/placeholder
+        run: uv run python scripts/export_openapi.py
+
+      - name: Check contracts/openapi.json has no uncommitted changes
+        run: |
+          if ! git diff --exit-code contracts/openapi.json; then
+            echo ""
+            echo "❌ contracts/openapi.json is out of date!"
+            echo "   Python Schema was changed but contracts/openapi.json was not updated."
+            echo "   Please run: make contracts"
+            echo "   Then commit the updated files."
+            exit 1
+          fi
+          echo "✅ contracts/openapi.json is up to date"
+
+      # ── Node.js 环境：重新生成 TS 类型并验证一致性 ──────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Regenerate TypeScript types from OpenAPI spec
+        run: npm run gen:types
+
+      - name: Check generated.ts has no uncommitted changes
+        run: |
+          if ! git diff --exit-code src/integrations/python-agent/generated.ts; then
+            echo ""
+            echo "❌ generated.ts is out of date!"
+            echo "   contracts/openapi.json changed but generated.ts was not regenerated."
+            echo "   Please run: npm run gen:types"
+            echo "   Then commit the updated generated.ts."
+            exit 1
+          fi
+          echo "✅ generated.ts is up to date"
+
+      # ── TypeScript 编译检查 ─────────────────────────────────────────────────
+      - name: TypeScript build check
+        run: npm run build

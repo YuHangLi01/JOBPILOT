@@ -1,98 +1,48 @@
 /**
- * Python Agent HTTP API 类型定义
+ * Python Agent API 类型
  *
- * 此文件为手写占位版本，下周将由 openapi-typescript 自动生成替换。
- * 字段命名与 Python Agent 接口约定保持 snake_case 风格。
+ * 此文件由 openapi-typescript 从 contracts/openapi.json 自动生成后 re-export。
+ * 禁止手工定义重复接口——如需修改类型，请：
+ *   1. 修改 Python Agent 的 Pydantic Schema
+ *   2. 在项目根目录运行 `make contracts`（或 `npm run gen:types`）
+ *   3. 将 generated.ts 和 openapi.json 的变更一起提交
  */
 
-import type { JDParsed, InterviewQuestion } from '../../types';
+import type { components } from './generated';
 
-// ============================================================
-// 1. JD 路由（对应编排器主入口）
-// ============================================================
+// ── JD 路由 ────────────────────────────────────────────────────────────────
+export type JdRoutingRequest = components['schemas']['JDRoutingRequest'];
+export type JdRoutingResponse = components['schemas']['JDRoutingResponse'];
+export type JDClassification = components['schemas']['JDClassification'];
+export type JDRoutingResults = components['schemas']['JDRoutingResults'];
+export type ResumeAdviceItem = components['schemas']['ResumeAdviceItem'];
+export type UserContext = components['schemas']['UserContext'];
+export type ResponseMetadata = components['schemas']['ResponseMetadata'];
 
-export interface JdRoutingRequest {
-  jd_text: string;
-  user_id?: string;
-  request_id: string;
-}
+// ── 面试 ───────────────────────────────────────────────────────────────────
+export type StartInterviewRequest = components['schemas']['InterviewStartRequest'];
+export type StartInterviewResponse = components['schemas']['InterviewStartResponse'];
+export type ResumeInterviewRequest = components['schemas']['InterviewResumeRequest'];
+export type ResumeInterviewResponse = components['schemas']['InterviewResumeResponse'];
+export type GetInterviewStatusResponse = components['schemas']['InterviewStatusResponse'];
+export type NextAction = components['schemas']['NextAction'];
+export type InterviewReport = components['schemas']['InterviewReport'];
+export type StageScore = components['schemas']['StageScore'];
 
-export interface JdRoutingResponse {
-  jd_parsed: JDParsed;
-  job_summary: string;
-  resume_suggestions: string[];
-  interview_questions: InterviewQuestion[];
-  bitable_result: {
-    success: boolean;
-    record_id?: string;
-    error?: string;
-  };
-  task_result: {
-    success: boolean;
-    task_id?: string;
-    error?: string;
-  };
-  document_result: {
-    success: boolean;
-    doc_url?: string;
-    error?: string;
-  };
-}
+// ── 面试问题（在 JD 路由结果与面试两处使用） ──────────────────────────────
+export type InterviewQuestion = components['schemas']['InterviewQuestion'];
 
-// ============================================================
-// 2. 开始面试会话
-// ============================================================
+// ── 公共 ───────────────────────────────────────────────────────────────────
+export type ErrorDetail = components['schemas']['HTTPValidationError'];
 
-export interface StartInterviewRequest {
-  user_id: string;
-  jd_text: string;
-  request_id: string;
-}
-
-export interface StartInterviewResponse {
-  session_id: string;
-  first_question: string;
-  status: 'started';
-}
-
-// ============================================================
-// 3. 继续面试会话
-// ============================================================
-
-export interface ResumeInterviewRequest {
-  session_id: string;
-  user_answer: string;
-  request_id: string;
-}
-
-export interface ResumeInterviewResponse {
-  session_id: string;
-  next_question?: string;
-  feedback?: string;
-  status: 'in_progress' | 'completed';
-}
-
-// ============================================================
-// 4. 查询面试状态
-// ============================================================
-
-export interface GetInterviewStatusRequest {
-  session_id: string;
-}
-
-export interface GetInterviewStatusResponse {
-  session_id: string;
-  status: 'started' | 'in_progress' | 'completed' | 'error';
-  progress?: number;
-  total_questions?: number;
-}
-
-// ============================================================
-// 5. 健康检查
-// ============================================================
-
+// ── 健康检查（Python Agent 响应，无 Schema，直接用 inline 类型） ───────────
 export interface PythonAgentHealthResponse {
   status: 'ok' | 'degraded' | 'error';
   version?: string;
   uptime_seconds?: number;
+}
+
+// ── 兼容旧调用（GetInterviewStatusRequest 是 path param，不是 request body）─
+export interface GetInterviewStatusRequest {
+  session_id: string;
 }

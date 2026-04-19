@@ -13,17 +13,64 @@ from jobpilot_agent.api.schemas import (
     ResponseMetadata,
     ResumeAdviceItem,
 )
+from jobpilot_agent.graphs.jd_routing_graph import get_jd_routing_graph
 from jobpilot_agent.logging_setup import bind_request_context, get_logger
 
 router = APIRouter(tags=["JD Routing"])
 log = get_logger(__name__)
 
 
+def _build_classification(raw: dict) -> JDClassification:
+    """将 classify_jd 节点输出的 dict 转为 JDClassification Pydantic 模型。
+
+    若字段缺失或不合法，使用安全默认值。
+    """
+    defaults = {
+        "job_type": "tech",
+        "sub_type": "software_engineer",
+        "level": "middle",
+        "locale": "zh",
+        "channel": "social",
+    }
+    merged = {**defaults, **{k: v for k, v in raw.items() if v}}
+    try:
+        return JDClassification(**merged)
+    except Exception:  # noqa: BLE001
+        return JDClassification(**defaults)
+
+
+def _build_results(final_result: dict) -> JDRoutingResults:
+    """将 final_synthesis 节点输出转为 JDRoutingResults Pydantic 模型。"""
+    resume_advice = []
+    for item in final_result.get("resume_advice") or []:
+        try:
+            resume_advice.append(ResumeAdviceItem(**item))
+        except Exception:  # noqa: BLE001
+            pass
+
+    interview_questions = []
+    for item in final_result.get("interview_questions") or []:
+        try:
+            interview_questions.append(InterviewQuestion(**item))
+        except Exception:  # noqa: BLE001
+            pass
+
+    return JDRoutingResults(
+        jd_summary=str(final_result.get("jd_summary") or ""),
+        resume_advice=resume_advice,
+        interview_questions=interview_questions,
+    )
+
+
 @router.post(
     "/jd-routing",
     response_model=JDRoutingResponse,
-    summary="JD 路由分析（stub）",
-    description="接收 JD 文本，触发 LangGraph 编排工作流（当前为 stub 实现，返回示例数据）。",
+    summary="JD 路由分析",
+    description=(
+        "接收 JD 文本，通过 LangGraph 编排以下工作流：\n"
+        "parse_jd → classify_jd → dispatch_skills → "
+        "invoke_skills_parallel → merge_outputs → final_synthesis"
+    ),
 )
 async def jd_routing(request: JDRoutingRequest) -> JDRoutingResponse | JSONResponse:
     start = time.monotonic()
@@ -31,57 +78,59 @@ async def jd_routing(request: JDRoutingRequest) -> JDRoutingResponse | JSONRespo
     log.info("jd_routing.start", jd_length=len(request.jd_text))
 
     try:
-        # ── Stub 实现：返回合法的示例 Response ────────────────────────────
-        result = JDRoutingResponse(
+        graph = get_jd_routing_graph()
+
+        initial_state = {
+            "request_id": request.request_id,
+            "user_id": request.user_id,
+            "jd_text": request.jd_text,
+            "user_context": request.user_context.model_dump(),
+            "skill_outputs": [],
+            "metadata": {},
+            "errors": [],
+        }
+
+        final_state = await graph.ainvoke(initial_state)
+
+        classification = _build_classification(final_state.get("classification") or {})
+        results = _build_results(final_state.get("final_result") or {})
+
+        invoked_skills: list[str] = final_state.get("invoked_skills") or []
+        skipped_skills: list[str] = final_state.get("skipped_skills") or []
+
+        # 从 metadata 读取 token 合计（各节点 + 各 Skill 之和）
+        meta: dict = final_state.get("metadata") or {}
+        total_tokens = sum(
+            int(v.get("tokens") or 0)
+            for v in meta.values()
+            if isinstance(v, dict)
+        )
+        merge_meta = meta.get("merge_outputs") or {}
+        total_tokens += int(merge_meta.get("total_skill_tokens") or 0)
+
+        latency_ms = int((time.monotonic() - start) * 1000)
+
+        response = JDRoutingResponse(
             request_id=request.request_id,
-            classification=JDClassification(
-                job_type="tech",
-                sub_type="backend_engineer",
-                level="middle",
-                locale="zh",
-                channel="social",
-            ),
-            invoked_skills=["jd_parser", "resume_advisor", "interview_generator"],
-            skipped_skills=[],
-            results=JDRoutingResults(
-                jd_summary=(
-                    "该岗位为后端工程师，要求熟悉 Python / TypeScript，"
-                    "有分布式系统经验，负责核心服务研发与架构演进。"
-                ),
-                resume_advice=[
-                    ResumeAdviceItem(
-                        priority="high",
-                        advice="突出分布式系统设计经验，量化系统规模与优化收益。",
-                        related_jd_requirement="熟悉分布式架构",
-                    ),
-                    ResumeAdviceItem(
-                        priority="medium",
-                        advice="补充 LangChain / LangGraph 项目经验。",
-                        related_jd_requirement="AI Agent 开发经验优先",
-                    ),
-                ],
-                interview_questions=[
-                    InterviewQuestion(
-                        question="请描述一次你主导的分布式系统设计，遇到了哪些挑战？",
-                        intent="考察系统设计能力与实际落地经验",
-                        answer_points=[
-                            "说明业务背景与规模",
-                            "列举技术选型理由",
-                            "说明遇到的问题及解决方案",
-                            "量化结果",
-                        ],
-                    ),
-                ],
-            ),
+            classification=classification,
+            invoked_skills=invoked_skills,
+            skipped_skills=skipped_skills,
+            results=results,
             metadata=ResponseMetadata(
-                latency_ms=int((time.monotonic() - start) * 1000),
-                tokens_used=None,
+                latency_ms=latency_ms,
+                tokens_used=total_tokens or None,
                 trace_id=request.request_id,
             ),
         )
 
-        log.info("jd_routing.complete", latency_ms=result.metadata.latency_ms)
-        return result
+        error_count = len(final_state.get("errors") or [])
+        log.info(
+            "jd_routing.complete",
+            latency_ms=latency_ms,
+            invoked_skills=invoked_skills,
+            error_count=error_count,
+        )
+        return response
 
     except Exception as exc:  # noqa: BLE001
         log.exception("jd_routing.error", error=str(exc))

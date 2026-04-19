@@ -12,29 +12,39 @@ export type { OrchestratorExecuteOptions } from './orchestrator.legacy';
 const log = createLogger('Orchestrator');
 
 /**
- * 将 Python Agent 的 snake_case 响应映射为 OrchestratorResult（camelCase）。
+ * 将 Python Agent 的响应映射为 Node.js 侧的 OrchestratorResult。
+ *
+ * 说明：Python Agent 负责 AI 分析（classification/results），
+ * 飞书副作用（bitable/task/document）由 Node.js Gateway 层独立处理，
+ * 因此 bitableResult / taskResult / documentResult 在此填入空占位值。
  */
 function mapPythonResponseToOrchestratorResult(res: JdRoutingResponse): OrchestratorResult {
+  const { classification, results } = res;
+
   return {
-    jdParsed: res.jd_parsed,
-    jobSummary: res.job_summary,
-    resumeSuggestions: res.resume_suggestions,
-    interviewQuestions: res.interview_questions,
-    bitableResult: {
-      success: res.bitable_result.success,
-      recordId: res.bitable_result.record_id,
-      error: res.bitable_result.error,
+    jdParsed: {
+      company_name: '',
+      job_title: classification.sub_type,
+      location: '',
+      job_type: classification.job_type,
+      responsibilities: [],
+      requirements: [],
+      preferred_qualifications: [],
+      key_skills: [],
+      seniority: classification.level,
+      summary: results.jd_summary,
     },
-    taskResult: {
-      success: res.task_result.success,
-      taskId: res.task_result.task_id,
-      error: res.task_result.error,
-    },
-    documentResult: {
-      success: res.document_result.success,
-      docUrl: res.document_result.doc_url,
-      error: res.document_result.error,
-    },
+    jobSummary: results.jd_summary,
+    resumeSuggestions: (results.resume_advice ?? []).map((item) => item.advice),
+    interviewQuestions: (results.interview_questions ?? []).map((q) => ({
+      question: q.question,
+      intent: q.intent,
+      answer_tips: q.answer_points,
+    })),
+    // 飞书副作用由 Gateway 层处理，Python Agent 不直接执行写操作
+    bitableResult: { success: false },
+    taskResult: { success: false },
+    documentResult: { success: false },
   };
 }
 
@@ -59,7 +69,7 @@ export class OrchestratorService {
 
         const res = await pythonAgentClient.postJdRouting({
           jd_text: jdText,
-          user_id: options?.userId,
+          user_id: options?.userId ?? '',
           request_id: requestId,
         });
 

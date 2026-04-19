@@ -485,9 +485,23 @@ def get_vector_store(force_chroma: bool = False) -> BaseVectorStore:
         )
         return _vector_store_singleton
 
-    # 尝试连通 Milvus
+    # 尝试连通 Milvus（先用 3s socket 探活，避免 pymilvus 同步阻塞整个事件循环）
     milvus_uri = settings.milvus_uri
     try:
+        import socket
+        from urllib.parse import urlparse
+
+        _parsed = urlparse(milvus_uri)
+        _host = _parsed.hostname or "localhost"
+        _port = _parsed.port or 19530
+        _sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _sock.settimeout(3.0)
+        try:
+            _sock.connect((_host, _port))
+            _sock.close()
+        except (socket.timeout, ConnectionRefusedError, OSError) as _e:
+            raise RuntimeError(f"Milvus TCP probe failed ({_host}:{_port}): {_e}") from _e
+
         from pymilvus import MilvusClient  # type: ignore[import]
 
         test_client: Any = MilvusClient(uri=milvus_uri)
