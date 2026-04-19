@@ -1,0 +1,31 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	init_session(init_session)
+	intro(intro)
+	project_deep_dive(project_deep_dive)
+	tech_qa(tech_qa)
+	scenario(scenario)
+	reverse(reverse)
+	closing(closing)
+	evaluate_performance(evaluate_performance)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> init_session;
+	closing --> evaluate_performance;
+	init_session --> intro;
+	intro --> project_deep_dive;
+	project_deep_dive -. &nbsp;move_to_tech_qa&nbsp; .-> tech_qa;
+	reverse --> closing;
+	scenario -. &nbsp;move_to_reverse&nbsp; .-> reverse;
+	tech_qa -. &nbsp;move_to_scenario&nbsp; .-> scenario;
+	evaluate_performance --> __end__;
+	project_deep_dive -. &nbsp;continue&nbsp; .-> project_deep_dive;
+	scenario -. &nbsp;continue&nbsp; .-> scenario;
+	tech_qa -. &nbsp;continue&nbsp; .-> tech_qa;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

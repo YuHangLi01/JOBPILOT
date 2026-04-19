@@ -64,9 +64,66 @@ async def search_interview_kb(
     )
 
 
+async def search_jd_kb(
+    query: str,
+    top_k: int = 5,
+    **filters: object,
+) -> list[RetrievalResult]:
+    """JD 知识库混合检索便利函数。
+
+    Args:
+        query: 检索词，例如 "Python 后端 3 年"。
+        top_k: 返回数量上限。
+        **filters: 任意元数据过滤，例如 `job_type="tech"`、`sub_type="frontend"`、
+            `level="senior"`、`company="字节跳动"`。值为 None 的 kwarg 会被忽略。
+
+    Returns:
+        按融合得分降序的 RetrievalResult 列表。
+    """
+    active = {k: v for k, v in filters.items() if v not in (None, "")}
+    retriever = get_retriever(CollectionName.JD_KB)
+    return await retriever.search(
+        query,
+        CollectionName.JD_KB,
+        SearchOptions(top_k=top_k, filters=active or None),
+    )
+
+
+async def search_user_kb(
+    query: str,
+    top_k: int = 5,
+    user_id: str = "u_default",
+    **filters: object,
+) -> list[RetrievalResult]:
+    """用户简历 / 作品知识库混合检索便利函数。
+
+    默认按 `user_id` 过滤以保证多租户隔离；传入额外 filters 如 `section="projects"`。
+
+    Args:
+        query: 检索词，例如 "JobPilot 项目"。
+        top_k: 返回数量上限。
+        user_id: 多租户隔离键；默认 "u_default"。传 None / "" 可以跨用户检索（不推荐）。
+        **filters: 任意元数据过滤，例如 `section="projects"`、`doc_type="resume"`。
+
+    Returns:
+        按融合得分降序的 RetrievalResult 列表。
+    """
+    active = {k: v for k, v in filters.items() if v not in (None, "")}
+    if user_id:
+        active.setdefault("user_id", user_id)
+    retriever = get_retriever(CollectionName.USER_KB)
+    return await retriever.search(
+        query,
+        CollectionName.USER_KB,
+        SearchOptions(top_k=top_k, filters=active or None),
+    )
+
+
 __all__ = [
     # 便利函数
     "search_interview_kb",
+    "search_jd_kb",
+    "search_user_kb",
     # 核心入口
     "get_retriever",
     "reset_retriever_singletons",

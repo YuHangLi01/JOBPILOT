@@ -175,3 +175,41 @@ def test_drop_collection(milvus_store) -> None:
     milvus_store.drop(col)
     cols = milvus_store.list_collections()
     assert CollectionName.USER_KB.value not in cols
+
+
+# ---------------------------------------------------------------------------
+# 动态字段回传（P2.3 依赖）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_returns_dynamic_fields(milvus_store, tmp_collection) -> None:
+    """search() 必须把入库时写入的动态字段（如 job_type/stage）原样回传到 metadata。"""
+    doc = Document(
+        doc_id="jd_kb-dynfield-0",
+        collection=CollectionName.JD_KB,
+        text="高级前端工程师 React TypeScript",
+        metadata={
+            "source_id": "dynfield",
+            "chunk_index": 0,
+            "company": "字节跳动",
+            "position": "前端",
+            # 以下都是动态字段
+            "job_type": "tech",
+            "sub_type": "frontend",
+            "level": "senior",
+            "chunk_type": "requirements",
+        },
+    )
+    emb = small_embedding(1, dim=4)
+    await milvus_store.upsert(tmp_collection, [doc], emb)
+    time.sleep(0.5)
+
+    query_vec = small_embedding(1, dim=4)[0]
+    results = await milvus_store.search(tmp_collection, query_vec, top_k=1)
+    assert results, "期望至少返回一条结果"
+    md = results[0].metadata
+    assert md.get("job_type") == "tech"
+    assert md.get("sub_type") == "frontend"
+    assert md.get("level") == "senior"
+    assert md.get("chunk_type") == "requirements"

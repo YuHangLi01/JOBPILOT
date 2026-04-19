@@ -13,6 +13,8 @@ dependencies = [
     "langchain-community>=0.2",
     "langgraph>=0.2",
     "langgraph-checkpoint-postgres>=1.0",
+    "langgraph-checkpoint-sqlite>=1.0",
+    "aiosqlite>=0.20",
     "pymilvus>=2.4",
     "chromadb>=0.5",
     "numpy>=1.26",
@@ -71,6 +73,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "integration: 集成测试，需要外部服务（Milvus 等），默认不运行，用 -m integration 启用",
+    "checkpoint: 断点续聊一致性测试（启动子进程），用 -m checkpoint 启用",
 ]
 
 [tool.ruff]

@@ -1,5 +1,47 @@
 # retrieval/ — RAG 检索层
 
+## 三个 Collection 调用示例
+
+灌库流程详见 [`knowledge-base/README.md`](../../../../knowledge-base/README.md)。
+灌好之后，下游（Skills / Graphs）直接通过下面三个便利函数访问即可，无需手写
+`SearchOptions`：
+
+```python
+from jobpilot_agent.retrieval import (
+    search_jd_kb,
+    search_interview_kb,
+    search_user_kb,
+)
+
+# jd_kb：按 labels 维度过滤
+jd_hits = await search_jd_kb(
+    "Python 后端 3 年分布式",
+    top_k=5,
+    job_type="tech",       # Milvus 标量过滤
+    sub_type="backend",
+    level="senior",
+)
+
+# interview_kb：按阶段 / 公司过滤
+interview_hits = await search_interview_kb(
+    "字节跳动 项目难点",
+    top_k=5,
+    stage="project_deep_dive",
+    company="字节跳动",
+)
+
+# user_kb：多租户隔离，默认 user_id="u_default"
+resume_hits = await search_user_kb(
+    "JobPilot 项目",
+    top_k=3,
+    user_id="u_default",
+    section="projects",    # 任意动态字段都可传入
+)
+```
+
+三个函数都返回按融合得分降序的 `list[RetrievalResult]`，`.metadata` 中包含
+Milvus 动态字段（`P2.3` 起 `search()` 已切到 `output_fields=["*"]`）。
+
 ## 分层架构
 
 ```

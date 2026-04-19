@@ -33,10 +33,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         app_env=settings.app_env,
         port=settings.app_port,
     )
+    from jobpilot_agent.graphs.interview.checkpointer import close_checkpointer, init_checkpointer
     from jobpilot_agent.skills.registry import register_all_skills
 
     register_all_skills()
+    await init_checkpointer()
     yield
+    await close_checkpointer()
     log.info("jobpilot_agent.shutdown")
 
 

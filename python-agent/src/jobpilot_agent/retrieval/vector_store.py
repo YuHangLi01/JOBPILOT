@@ -246,25 +246,32 @@ class MilvusVectorStore(BaseVectorStore):
                 limit=top_k,
                 search_params={"metric_type": "COSINE", "params": {"ef": 64}},
                 filter=filter_expr if filter_expr else None,
-                output_fields=["doc_id", "text", "source_id", "chunk_index", "company", "position"],
+                output_fields=["*"],
             )
             return results[0] if results else []
 
         raw = await asyncio.to_thread(_do_search)
 
+        _RESERVED = {"doc_id", "text", "embedding"}
         results: list[RetrievalResult] = []
         for rank, hit in enumerate(raw, start=1):
-            entity = hit.get("entity", hit)
+            entity_obj = hit.get("entity", hit)
+            # pymilvus 2.4 通常把 entity 直接给成 dict，但为了健壮性，非 dict 也兜住
+            if isinstance(entity_obj, dict):
+                entity: dict[str, Any] = entity_obj
+            else:
+                entity = dict(entity_obj) if entity_obj else {}
             score = float(hit.get("distance", 0.0))
+            metadata = {
+                k: v
+                for k, v in entity.items()
+                if k not in _RESERVED and v is not None and v != ""
+            }
             results.append(
                 RetrievalResult(
-                    doc_id=entity.get("doc_id", ""),
-                    text=entity.get("text", ""),
-                    metadata={
-                        k: entity.get(k)
-                        for k in ("source_id", "chunk_index", "company", "position")
-                        if entity.get(k) is not None
-                    },
+                    doc_id=str(entity.get("doc_id", "")),
+                    text=str(entity.get("text", "")),
+                    metadata=metadata,
                     score=score,
                     dense_score=score,
                     rank_in_dense=rank,

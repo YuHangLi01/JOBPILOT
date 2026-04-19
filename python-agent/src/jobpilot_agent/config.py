@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     github_token: str | None = None
     github_rate_limit_buffer: int = 5
 
+    # ── Checkpointer（面试子图持久化） ─────────────────────────
+    checkpointer_backend: Literal["postgres", "sqlite"] = "sqlite"
+    sqlite_checkpoint_path: str = "./data/checkpoints.db"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
