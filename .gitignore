@@ -5,3 +5,16 @@ dist/
 .DS_Store
 CLAUDE.md
 docs/
+.claude/
+
+# 作品集文档(不进仓库)
+AI项目报告.md
+ARCHITECTURE.md
+DATASETS.md
+EVALUATION.md
+CHANGELOG.md
+
+# 评估原始报告
+python-agent/evaluation/reports/scenario_a_v1.md
+python-agent/evaluation/reports/replay_evaluation_v1.md
+python-agent/evaluation/reports/checkpoint_consistency_v1.md
