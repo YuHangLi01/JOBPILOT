@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { config } from '../config';
 import { feishuDocumentService } from '../integrations/feishu/document';
+import { feishuBitableService } from '../integrations/feishu/bitable';
 
 const router = Router();
 
@@ -56,10 +57,57 @@ router.post('/internal/feishu/docs/read', verifyInternalSecret, async (req: Requ
 
 /**
  * POST /internal/feishu/bitable/query
- * 查询飞书多维表格（stub）
+ * 查询飞书多维表格。Python Agent 通过此接口读取记忆/求职记录等 Bitable 数据。
+ *
+ * Request body: {
+ *   app_token: string,         // Bitable App Token
+ *   table_id: string,          // 数据表 ID
+ *   filter?: object,           // 飞书 filter 条件（conjunction + conditions 格式）
+ *   sort?: object[],           // 排序
+ *   page_size?: number,        // 每页条数（最大 500）
+ *   page_token?: string,       // 翻页 token
+ * }
+ * Response: { ok: true, data: { items, total, has_more, page_token? } }
  */
-router.post('/internal/feishu/bitable/query', verifyInternalSecret, (_req: Request, res: Response) => {
-  res.json({ ok: true, data: null, note: 'stub' });
+router.post('/internal/feishu/bitable/query', verifyInternalSecret, async (req: Request, res: Response) => {
+  const { app_token, table_id, filter, sort, page_size, page_token } = req.body as {
+    app_token?: string;
+    table_id?: string;
+    filter?: Record<string, unknown>;
+    sort?: Record<string, unknown>[];
+    page_size?: number;
+    page_token?: string;
+  };
+
+  if (!app_token || !table_id) {
+    res.status(400).json({ ok: false, error_code: 'MISSING_PARAM', error_message: 'app_token and table_id are required' });
+    return;
+  }
+
+  const searchBody: Record<string, unknown> = {
+    page_size: Math.min(page_size ?? 20, 500),
+  };
+  if (filter) searchBody['filter'] = filter;
+  if (sort) searchBody['sort'] = sort;
+  if (page_token) searchBody['page_token'] = page_token;
+
+  try {
+    const result = await feishuBitableService.searchRecordsInTable(
+      { appToken: app_token, tableId: table_id },
+      searchBody,
+    );
+    res.json({
+      ok: true,
+      data: {
+        items: result.items,
+        has_more: result.has_more,
+        page_token: result.page_token ?? null,
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ ok: false, error_code: 'FEISHU_API_ERROR', error_message: message });
+  }
 });
 
 /**

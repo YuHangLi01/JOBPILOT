@@ -246,9 +246,9 @@ export interface components {
             /** User Id */
             user_id: string;
             /** Company */
-            company: string;
+            company?: string | null;
             /** Position */
-            position: string;
+            position?: string | null;
             /** Context */
             context?: {
                 [key: string]: unknown;
@@ -361,6 +361,21 @@ export interface components {
             results: components["schemas"]["JDRoutingResults"];
             metadata: components["schemas"]["ResponseMetadata"];
         };
+        /** InterviewInvitation */
+        InterviewInvitation: {
+            /** Should Invite */
+            should_invite: boolean;
+            /** Reason */
+            reason: string;
+            /** Suggested Company */
+            suggested_company: string;
+            /** Suggested Position */
+            suggested_position: string;
+            /** Cta Text */
+            cta_text: string;
+            /** Session Seed */
+            session_seed: string;
+        };
         /** JDRoutingResults */
         JDRoutingResults: {
             /** Jd Summary */
@@ -369,6 +384,8 @@ export interface components {
             resume_advice?: components["schemas"]["ResumeAdviceItem"][];
             /** Interview Questions */
             interview_questions?: components["schemas"]["InterviewQuestion"][];
+            /** Interview Invitation */
+            interview_invitation?: components["schemas"]["InterviewInvitation"] | null;
         };
         /** NextAction */
         NextAction: {
@@ -453,6 +470,8 @@ export interface components {
             github_username?: string | null;
             /** Portfolio Doc Ref */
             portfolio_doc_ref?: string | null;
+            /** Feishu Chat Id */
+            feishu_chat_id?: string | null;
         };
         /** ValidationError */
         ValidationError: {

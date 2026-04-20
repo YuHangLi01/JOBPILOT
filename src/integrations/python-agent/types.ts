@@ -18,6 +18,7 @@ export type JDRoutingResults = components['schemas']['JDRoutingResults'];
 export type ResumeAdviceItem = components['schemas']['ResumeAdviceItem'];
 export type UserContext = components['schemas']['UserContext'];
 export type ResponseMetadata = components['schemas']['ResponseMetadata'];
+export type InterviewInvitationSchema = components['schemas']['InterviewInvitation'];
 
 // ── 面试 ───────────────────────────────────────────────────────────────────
 export type StartInterviewRequest = components['schemas']['InterviewStartRequest'];

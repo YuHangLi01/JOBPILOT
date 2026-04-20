@@ -217,7 +217,7 @@ class LLMClient:
 
 @lru_cache
 def get_llm() -> "ChatOpenAI":
-    """返回主力模型实例（doubao-pro-4k 或配置中的 llm_model）。"""
+    """返回主力模型实例（deepseek-chat 或配置中的 llm_model）。"""
     from langchain_openai import ChatOpenAI
 
     settings = get_settings()
@@ -232,7 +232,7 @@ def get_llm() -> "ChatOpenAI":
 
 @lru_cache
 def get_lite_llm() -> "ChatOpenAI":
-    """返回轻量模型实例（doubao-lite-4k，用于快速评估或低成本场景）。"""
+    """返回轻量模型实例（deepseek-chat，用于快速评估或低成本场景）。"""
     from langchain_openai import ChatOpenAI
 
     settings = get_settings()

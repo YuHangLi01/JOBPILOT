@@ -20,6 +20,7 @@ const log = createLogger('Orchestrator');
  */
 function mapPythonResponseToOrchestratorResult(res: JdRoutingResponse): OrchestratorResult {
   const { classification, results } = res;
+  const rawInvitation = results.interview_invitation ?? undefined;
 
   return {
     jdParsed: {
@@ -45,6 +46,16 @@ function mapPythonResponseToOrchestratorResult(res: JdRoutingResponse): Orchestr
     bitableResult: { success: false },
     taskResult: { success: false },
     documentResult: { success: false },
+    interviewInvitation: rawInvitation?.should_invite
+      ? {
+          should_invite: rawInvitation.should_invite,
+          reason: rawInvitation.reason,
+          suggested_company: rawInvitation.suggested_company,
+          suggested_position: rawInvitation.suggested_position,
+          cta_text: rawInvitation.cta_text,
+          session_seed: rawInvitation.session_seed,
+        }
+      : undefined,
   };
 }
 
@@ -59,7 +70,7 @@ function mapPythonResponseToOrchestratorResult(res: JdRoutingResponse): Orchestr
 export class OrchestratorService {
   async execute(
     jdText: string,
-    options?: { userId?: string },
+    options?: { userId?: string; chatId?: string },
   ): Promise<OrchestratorResult> {
     const requestId = uuidv4();
 
@@ -71,6 +82,10 @@ export class OrchestratorService {
           jd_text: jdText,
           user_id: options?.userId ?? '',
           request_id: requestId,
+          user_context: {
+            preferred_lang: 'zh',
+            feishu_chat_id: options?.chatId ?? null,
+          },
         });
 
         log.info('[Orchestrator] Python Agent 执行成功', { request_id: requestId });

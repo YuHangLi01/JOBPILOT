@@ -34,6 +34,9 @@ export const FEISHU_EVENT_TYPE_MESSAGE = 'im.message.receive_v1';
 /** 飞书文件消息类型 */
 export const FEISHU_MESSAGE_TYPE_FILE = 'file';
 
+/** 飞书卡片动作事件类型 */
+export const FEISHU_EVENT_TYPE_CARD_ACTION = 'card.action.trigger';
+
 /** 简历 PDF 最大大小 */
 export const RESUME_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 

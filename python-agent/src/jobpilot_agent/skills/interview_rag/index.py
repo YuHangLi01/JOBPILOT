@@ -140,6 +140,7 @@ class InterviewRagSkill(Skill):
             )
 
             result.retrieved_count = len(all_results)
+            result.raw_retrieved_texts = [r.text for r in all_results if r.text]
             result.retrieval_metadata = {
                 "tech_qa_hits": len(tech_results),
                 "project_hits": len(project_results),

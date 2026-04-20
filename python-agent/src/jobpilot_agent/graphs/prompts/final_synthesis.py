@@ -49,12 +49,91 @@ SYSTEM_PROMPT = """\
 """
 
 
+def _compact_skill_data(merged_skill_data: dict) -> dict:
+    """对每个 Skill 的原始 data 做结构化压缩，仅保留 LLM 合成所需关键字段。
+
+    设计目标：把 user prompt 从 ~3000 tokens 降到 ~1200 tokens（-60%），
+    直接减少 final_synthesis 的延迟和单次调用成本。
+
+    未识别的 skill 名原样透传（防止新增 skill 时静默丢数据）。
+
+    Args:
+        merged_skill_data: {skill_name: skill_data_dict}
+
+    Returns:
+        裁剪后的 {skill_name: compact_dict}
+    """
+    if not isinstance(merged_skill_data, dict):
+        return {}
+
+    compact: dict = {}
+    for name, data in merged_skill_data.items():
+        if not isinstance(data, dict):
+            compact[name] = data
+            continue
+
+        if name == "tech_stack_extract":
+            compact[name] = {
+                "primary": [
+                    s.get("name") if isinstance(s, dict) else s
+                    for s in (data.get("primary_stack") or [])
+                ][:8],
+                "preferred": [
+                    s.get("name") if isinstance(s, dict) else s
+                    for s in (data.get("preferred_stack") or [])
+                ][:5],
+            }
+        elif name == "interview_rag":
+            questions = data.get("questions") or data.get("interview_questions") or []
+            compact[name] = {
+                "top_questions": [
+                    {
+                        "question": q.get("question", ""),
+                        "intent": q.get("intent", ""),
+                    }
+                    if isinstance(q, dict)
+                    else {"question": str(q)}
+                    for q in questions[:5]
+                ],
+                "retrieved_count": data.get("retrieved_count", 0),
+            }
+        elif name == "github_scan":
+            compact[name] = {
+                "username": data.get("username"),
+                "signals": data.get("signals") or data.get("highlights") or [],
+                "score": data.get("score"),
+            }
+        elif name == "portfolio_check":
+            compact[name] = {
+                "has_portfolio": data.get("has_portfolio", False),
+                "summary": data.get("summary") or data.get("note") or "",
+            }
+        elif name == "gpa_check":
+            compact[name] = {
+                "required_gpa": data.get("required_gpa"),
+                "threshold_note": data.get("threshold_note") or data.get("note") or "",
+            }
+        elif name == "en_translate":
+            translated = data.get("translated_jd") or data.get("translation") or ""
+            # 翻译结果本身可能很长，仅保留前 600 字；LLM 主要靠 parsed_jd 已结构化信息
+            compact[name] = {
+                "translation_excerpt": translated[:600] if isinstance(translated, str) else "",
+                "source_lang": data.get("source_lang"),
+            }
+        else:
+            compact[name] = data
+
+    return compact
+
+
 def build_user_prompt(
     parsed_jd: dict,
     classification: dict,
     merged_skill_data: dict,
 ) -> str:
     """构造 final_synthesis 的 user 提示词。
+
+    对 merged_skill_data 做压缩，避免原始 evidence 塞爆 prompt。
 
     Args:
         parsed_jd: parse_jd 节点输出。
@@ -64,6 +143,7 @@ def build_user_prompt(
     Returns:
         格式化后的 user prompt 字符串。
     """
+    compact_skill_data = _compact_skill_data(merged_skill_data)
     sections = [
         "## JD 解析结果",
         json.dumps(parsed_jd, ensure_ascii=False, indent=2),
@@ -71,8 +151,8 @@ def build_user_prompt(
         "## JD 分类结果",
         json.dumps(classification, ensure_ascii=False, indent=2),
         "",
-        "## Skill 分析数据",
-        json.dumps(merged_skill_data, ensure_ascii=False, indent=2),
+        "## Skill 分析数据（精简版）",
+        json.dumps(compact_skill_data, ensure_ascii=False, indent=2),
         "",
         "请基于以上数据生成最终求职建议报告（JSON 格式）：",
     ]

@@ -38,7 +38,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--model",
-        default="doubao-pro-4k",
+        default="deepseek-chat",
         help="LLM 模型名称（写入报告头部）",
     )
     parser.add_argument(

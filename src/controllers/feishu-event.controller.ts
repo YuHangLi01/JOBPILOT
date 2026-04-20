@@ -2,17 +2,23 @@ import type { Request, Response } from 'express';
 import { config } from '../config';
 import { orchestratorService } from '../services/orchestrator.service';
 import { resumeIngestionService } from '../services/resume-ingestion.service';
+import { detectIntent } from '../services/intent-detector.service';
+import { chatStateService } from '../services/chat-state.service';
+import { pythonAgentClient } from '../integrations/python-agent/client';
 import { feishuFileService } from '../integrations/feishu/file';
 import { feishuMessageService } from '../integrations/feishu/message';
+import { buildInterviewInvitationCard } from '../integrations/feishu/card-builder';
 import { validateJDInput, validateResumePdf } from '../utils/validator';
 import { createLogger } from '../utils/logger';
 import {
   FEISHU_EVENT_TYPE_MESSAGE,
+  FEISHU_EVENT_TYPE_CARD_ACTION,
   FEISHU_MESSAGE_TYPE_FILE,
   EVENT_ID_CACHE_SIZE,
   EVENT_ID_TTL_MS,
 } from '../constants';
 import type {
+  FeishuCardActionBody,
   FeishuEventBody,
   FeishuFileMessageContent,
   FeishuMessageContent,
@@ -86,17 +92,69 @@ export class FeishuEventController {
       return;
     }
 
-    // ===== 4. 先立即响应 200，避免飞书超时重发 =====
+    // ===== 4. 路由事件类型 =====
+    const eventType = body.header?.event_type;
+
+    if (eventType === FEISHU_EVENT_TYPE_CARD_ACTION) {
+      // 卡片动作：立即返回 toast，然后异步处理
+      res.json({ code: 0, toast: { type: 'info', content: '正在启动面试…' } });
+      this.handleCardAction(body as unknown as FeishuCardActionBody).catch((err) => {
+        log.error('处理卡片动作时发生未捕获异常', err instanceof Error ? err.message : err);
+      });
+      return;
+    }
+
+    // ===== 5. 先立即响应 200，避免飞书超时重发 =====
     res.json({ code: 0, msg: 'ok' });
 
-    // ===== 5. 异步处理事件 =====
-    const eventType = body.header?.event_type;
+    // ===== 6. 异步处理消息事件 =====
     if (eventType === FEISHU_EVENT_TYPE_MESSAGE) {
       this.handleMessageEvent(body).catch((err) => {
         log.error('处理消息事件时发生未捕获异常', err instanceof Error ? err.message : err);
       });
     } else {
       log.info(`忽略未处理的事件类型: ${eventType}`);
+    }
+  }
+
+  /**
+   * 处理卡片按钮点击事件（card.action.trigger）
+   */
+  private async handleCardAction(body: FeishuCardActionBody): Promise<void> {
+    const action = body.event?.action?.value?.['action'];
+    const company = body.event?.action?.value?.['company'] ?? '';
+    const position = body.event?.action?.value?.['position'] ?? '';
+    const chatId = body.event?.operator?.open_chat_id ?? body.event?.host?.im_context?.chat_id ?? '';
+    const userId = body.event?.operator?.open_id ?? '';
+
+    if (action !== 'start_interview') {
+      log.info(`忽略未知卡片动作: ${action}`);
+      return;
+    }
+
+    if (!chatId) {
+      log.warn('卡片动作缺少 chat_id，无法启动面试');
+      return;
+    }
+
+    log.info(`启动面试会话`, { chatId, company, position });
+    chatStateService.startInterview(chatId, chatId);
+
+    try {
+      const startResp = await pythonAgentClient.startInterview({
+        thread_id: chatId,
+        user_id: userId,
+        company,
+        position,
+      });
+
+      const message =
+        startResp.next_action?.content ?? '面试开始！请先做一下自我介绍。';
+      await feishuMessageService.sendTextToChat(chatId, message);
+    } catch (err) {
+      log.error('启动面试失败', err instanceof Error ? err.message : err);
+      chatStateService.endInterview(chatId);
+      await feishuMessageService.sendTextToChat(chatId, '❌ 面试启动失败，请稍后重试。');
     }
   }
 
@@ -148,7 +206,49 @@ export class FeishuEventController {
       senderId: body.event?.sender?.sender_id?.open_id,
     });
 
-    // ===== 输入校验 =====
+    // ===== 意图识别 =====
+    const isInInterview = chatId ? chatStateService.isInInterview(chatId) : false;
+    const intent = detectIntent(rawText, isInInterview);
+
+    // ===== 面试对话中继 =====
+    if (intent === 'interview_reply' && chatId) {
+      const state = chatStateService.get(chatId);
+      if (state) {
+        chatStateService.touch(chatId);
+        try {
+          const resp = await pythonAgentClient.resumeInterview({
+            thread_id: state.sessionId,
+            user_input: rawText,
+          });
+          if (resp.state === 'completed') {
+            chatStateService.endInterview(chatId);
+            const report = resp.report;
+            const summary = report
+              ? `面试结束！\n\n${report.transcript_summary}\n\n亮点：${report.highlights.join('；')}\n改进：${report.improvements.join('；')}`
+              : '面试结束！感谢参与。';
+            await feishuMessageService.replyText(messageId, summary);
+          } else {
+            const message = resp.next_action?.content ?? '（面试官思考中…）';
+            await feishuMessageService.replyText(messageId, message);
+          }
+        } catch (err) {
+          log.error('面试中继失败', err instanceof Error ? err.message : err);
+          await feishuMessageService.replyText(messageId, '❌ 面试回复失败，请稍后重试。');
+        }
+        return;
+      }
+    }
+
+    // ===== 非 JD 文本：友好提示 =====
+    if (intent === 'general_chat') {
+      await feishuMessageService.replyText(
+        messageId,
+        '你好！请发送 JD（招聘职位描述）文本给我，我将为你分析岗位要求、生成简历建议和模拟面试题。',
+      );
+      return;
+    }
+
+    // ===== JD 路由：输入校验 =====
     const validation = validateJDInput(rawText);
     if (!validation.valid) {
       log.info('输入校验未通过', { error: validation.error });
@@ -165,10 +265,21 @@ export class FeishuEventController {
     // ===== 执行主流程 =====
     try {
       const openId = body.event?.sender?.sender_id?.open_id?.trim();
-      const result = await orchestratorService.execute(rawText, openId ? { userId: openId } : undefined);
+      const result = await orchestratorService.execute(rawText, {
+        userId: openId ?? '',
+        chatId: chatId ?? '',
+      });
       const replyContent = this.buildResultMessage(result);
       await feishuMessageService.replyText(messageId, replyContent);
       log.info('结果消息回复成功');
+
+      // ===== 发送面试邀请卡片 =====
+      if (result.interviewInvitation?.should_invite) {
+        const inv = result.interviewInvitation;
+        const card = buildInterviewInvitationCard(inv.suggested_company, inv.suggested_position, inv.cta_text);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await feishuMessageService.replyInteractiveCard(messageId, card as any);
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       log.error('主流程执行失败', errMsg);

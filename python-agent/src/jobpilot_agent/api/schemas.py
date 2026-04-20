@@ -47,6 +47,7 @@ class UserContext(BaseModel):
     preferred_lang: Literal["zh", "en"] = "zh"
     github_username: str | None = None
     portfolio_doc_ref: str | None = None  # 飞书云文档 doc_token
+    feishu_chat_id: str | None = None
 
 
 class JDRoutingRequest(BaseModel):
@@ -76,10 +77,20 @@ class ResumeAdviceItem(BaseModel):
     related_jd_requirement: str | None = None
 
 
+class InterviewInvitation(BaseModel):
+    should_invite: bool
+    reason: str | None = None
+    suggested_company: str | None = None
+    suggested_position: str | None = None
+    cta_text: str = "开始模拟面试"
+    session_seed: dict = Field(default_factory=dict)
+
+
 class JDRoutingResults(BaseModel):
     jd_summary: str
     resume_advice: list[ResumeAdviceItem] = Field(default_factory=list)
     interview_questions: list[InterviewQuestion] = Field(default_factory=list)
+    interview_invitation: InterviewInvitation | None = None
 
 
 class JDRoutingResponse(BaseModel):
@@ -99,8 +110,8 @@ class JDRoutingResponse(BaseModel):
 class InterviewStartRequest(BaseModel):
     thread_id: str
     user_id: str
-    company: str
-    position: str
+    company: str | None = None
+    position: str | None = None
     context: dict[str, object] = Field(default_factory=dict)
 
 
