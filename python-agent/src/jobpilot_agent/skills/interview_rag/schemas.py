@@ -66,3 +66,7 @@ class InterviewRagData(BaseModel):
         default_factory=dict,
         description="检索统计：tech_qa_hits, project_hits, avg_score 等",
     )
+    raw_retrieved_texts: list[str] = Field(
+        default_factory=list,
+        description="原始检索到的面经 turn 完整文本（RAGAS contexts 字段来源）",
+    )

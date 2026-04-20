@@ -10,11 +10,11 @@ class Settings(BaseSettings):
     app_port: int = 8000
     log_level: str = "INFO"
 
-    # ── 大模型（火山方舟 OpenAI 兼容接口） ───────────────────
-    llm_api_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    # ── 大模型（DeepSeek OpenAI 兼容接口） ───────────────────
+    llm_api_base_url: str = "https://api.deepseek.com/v1"
     llm_api_key: str  # required — 无默认值
-    llm_model: str = "doubao-pro-4k"
-    llm_model_lite: str = "doubao-lite-4k"
+    llm_model: str = "deepseek-chat"
+    llm_model_lite: str = "deepseek-chat"
 
     # ── 向量数据库 ────────────────────────────────────────────
     milvus_uri: str = "http://localhost:19530"
@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     embedding_provider: Literal["local", "doubao"] = "local"
     embedding_model_name: str = "BAAI/bge-m3"
     embedding_dimension: int = 1024
+    embedding_cache_enabled: bool = True
+    embedding_cache_size: int = 10000
 
     # ── 精排器 ───────────────────────────────────────────────
     reranker_model_name: str = "BAAI/bge-reranker-v2-m3"
@@ -52,6 +54,9 @@ class Settings(BaseSettings):
     # ── Checkpointer（面试子图持久化） ─────────────────────────
     checkpointer_backend: Literal["postgres", "sqlite"] = "sqlite"
     sqlite_checkpoint_path: str = "./data/checkpoints.db"
+
+    # ── Redis（Session Context 缓存） ─────────────────────────────────────────
+    redis_url: str = "redis://localhost:6379"
 
     model_config = SettingsConfigDict(
         env_file=".env",

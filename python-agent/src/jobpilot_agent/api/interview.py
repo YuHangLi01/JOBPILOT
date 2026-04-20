@@ -21,6 +21,7 @@ from jobpilot_agent.api.schemas import (
 )
 from jobpilot_agent.graphs.interview.interview_subgraph import get_interview_subgraph
 from jobpilot_agent.logging_setup import bind_request_context, get_logger
+from jobpilot_agent.orchestration.session_context import get_session_store
 
 router = APIRouter(tags=["Interview"])
 log = get_logger(__name__)
@@ -61,6 +62,7 @@ def _to_api_report(report_dict: dict[str, Any]) -> InterviewReport:
     stage_scores = [
         StageScore(stage=k, score=float(v), comment="")
         for k, v in report_dict.get("stage_scores", {}).items()
+        if float(v) >= 0  # LLM uses -1 for unvisited stages; omit from API response
     ]
     return InterviewReport(
         stage_scores=stage_scores,
@@ -82,22 +84,47 @@ async def interview_start(
     request: InterviewStartRequest,
 ) -> InterviewStartResponse | JSONResponse:
     bind_request_context(request_id=request.thread_id, user_id=request.user_id)
-    log.info("interview.start", thread_id=request.thread_id, company=request.company)
+    log.info("interview.start", thread_id=request.thread_id)
 
     try:
+        # 尝试从 Redis 加载主图产出的 session_context
+        store = get_session_store()
+        session_context = await store.load(request.thread_id)
+
+        company = request.company
+        position = request.position
+
+        if session_context:
+            invitation = session_context.get("interview_invitation") or {}
+            company = company or invitation.get("suggested_company")
+            position = position or invitation.get("suggested_position")
+            log.info(
+                "interview.start.context_loaded",
+                thread_id=request.thread_id,
+                company=company,
+            )
+
+        if not company or not position:
+            raise HTTPException(
+                status_code=400,
+                detail="company and position are required (pass them directly or run jd-routing first)",
+            )
+
         graph = get_interview_subgraph()
         config = {"configurable": {"thread_id": request.thread_id}}
 
         initial_state = {
             "session_id": request.thread_id,
             "user_id": request.user_id,
-            "company": request.company,
-            "position": request.position,
+            "company": company,
+            "position": position,
             "transcript": [],
             "stage_history": [],
             "stage_round_count": {},
             "performance_signals": [],
-            "metadata": {},
+            "metadata": {
+                "source_session_context": session_context,
+            },
             "errors": [],
         }
 

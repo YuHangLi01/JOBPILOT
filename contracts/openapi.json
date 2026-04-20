@@ -524,6 +524,44 @@
         ],
         "title": "InterviewResumeResponse"
       },
+      "InterviewInvitation": {
+        "properties": {
+          "should_invite": {
+            "type": "boolean",
+            "title": "Should Invite"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "suggested_company": {
+            "type": "string",
+            "title": "Suggested Company"
+          },
+          "suggested_position": {
+            "type": "string",
+            "title": "Suggested Position"
+          },
+          "cta_text": {
+            "type": "string",
+            "title": "Cta Text"
+          },
+          "session_seed": {
+            "type": "string",
+            "title": "Session Seed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "should_invite",
+          "reason",
+          "suggested_company",
+          "suggested_position",
+          "cta_text",
+          "session_seed"
+        ],
+        "title": "InterviewInvitation"
+      },
       "InterviewStartRequest": {
         "properties": {
           "thread_id": {
@@ -535,11 +573,25 @@
             "title": "User Id"
           },
           "company": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Company"
           },
           "position": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Position"
           },
           "context": {
@@ -551,9 +603,7 @@
         "type": "object",
         "required": [
           "thread_id",
-          "user_id",
-          "company",
-          "position"
+          "user_id"
         ],
         "title": "InterviewStartRequest"
       },
@@ -828,6 +878,17 @@
             },
             "type": "array",
             "title": "Interview Questions"
+          },
+          "interview_invitation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InterviewInvitation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interview Invitation"
           }
         },
         "type": "object",
@@ -1079,6 +1140,17 @@
               }
             ],
             "title": "Portfolio Doc Ref"
+          },
+          "feishu_chat_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feishu Chat Id"
           }
         },
         "type": "object",

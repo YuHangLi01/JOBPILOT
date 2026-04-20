@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from jobpilot_agent.evaluation.metrics.cost import compute_cost_comparison
 from tests.evaluation.conftest import make_record
 

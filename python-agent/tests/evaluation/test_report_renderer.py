@@ -6,11 +6,8 @@
 
 from __future__ import annotations
 
-import os
 import tempfile
 from pathlib import Path
-
-import pytest
 
 from jobpilot_agent.evaluation.metrics.classification import compute_classification_metrics
 from jobpilot_agent.evaluation.metrics.cost import compute_cost_comparison

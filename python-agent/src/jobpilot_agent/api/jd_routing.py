@@ -1,10 +1,12 @@
 import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from jobpilot_agent.api.schemas import (
     ErrorDetail,
+    InterviewInvitation,
     InterviewQuestion,
     JDClassification,
     JDRoutingRequest,
@@ -15,6 +17,7 @@ from jobpilot_agent.api.schemas import (
 )
 from jobpilot_agent.graphs.jd_routing_graph import get_jd_routing_graph
 from jobpilot_agent.logging_setup import bind_request_context, get_logger
+from jobpilot_agent.orchestration.session_context import get_session_store
 
 router = APIRouter(tags=["JD Routing"])
 log = get_logger(__name__)
@@ -55,10 +58,19 @@ def _build_results(final_result: dict) -> JDRoutingResults:
         except Exception:  # noqa: BLE001
             pass
 
+    invitation: InterviewInvitation | None = None
+    raw_inv = final_result.get("interview_invitation")
+    if raw_inv and isinstance(raw_inv, dict):
+        try:
+            invitation = InterviewInvitation(**raw_inv)
+        except Exception:  # noqa: BLE001
+            pass
+
     return JDRoutingResults(
         jd_summary=str(final_result.get("jd_summary") or ""),
         resume_advice=resume_advice,
         interview_questions=interview_questions,
+        interview_invitation=invitation,
     )
 
 
@@ -123,12 +135,31 @@ async def jd_routing(request: JDRoutingRequest) -> JDRoutingResponse | JSONRespo
             ),
         )
 
+        # 缓存 session context 供后续面试子图读取
+        invitation = response.results.interview_invitation
+        if invitation and invitation.should_invite:
+            chat_id = (request.user_context.feishu_chat_id or request.user_id)
+            store = get_session_store()
+            await store.save(
+                chat_id=chat_id,
+                context={
+                    "classification": response.classification.model_dump(),
+                    "parsed_jd": final_state.get("parsed_jd") or {},
+                    "jd_summary": response.results.jd_summary,
+                    "interview_invitation": invitation.model_dump(),
+                    "source_jd_text": request.jd_text[:500],
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            log.info("session_context.saved", chat_id=chat_id)
+
         error_count = len(final_state.get("errors") or [])
         log.info(
             "jd_routing.complete",
             latency_ms=latency_ms,
             invoked_skills=invoked_skills,
             error_count=error_count,
+            has_invitation=invitation is not None,
         )
         return response
 

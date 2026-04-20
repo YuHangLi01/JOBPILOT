@@ -111,6 +111,28 @@ export interface FeishuFileMessageContent {
   file_name?: string;
 }
 
+export interface FeishuCardActionBody {
+  schema?: string;
+  header?: {
+    event_id: string;
+    event_type: string;
+    token: string;
+  };
+  event?: {
+    operator?: {
+      open_id?: string;
+      open_chat_id?: string;
+    };
+    action?: {
+      tag?: string;
+      value?: Record<string, string>;
+    };
+    host?: {
+      im_context?: { chat_id?: string };
+    };
+  };
+}
+
 // ============================================
 // 多维表格记录
 // ============================================
@@ -132,6 +154,15 @@ export interface BitableRecord {
 // ============================================
 // 编排结果
 // ============================================
+export interface InterviewInvitation {
+  should_invite: boolean;
+  reason: string;
+  suggested_company: string;
+  suggested_position: string;
+  cta_text: string;
+  session_seed: string;
+}
+
 export interface OrchestratorResult {
   jdParsed: JDParsed;
   jobSummary: string;
@@ -152,6 +183,7 @@ export interface OrchestratorResult {
     docUrl?: string;
     error?: string;
   };
+  interviewInvitation?: InterviewInvitation;
 }
 
 // ============================================

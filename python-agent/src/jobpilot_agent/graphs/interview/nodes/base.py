@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from langgraph.errors import GraphInterrupt
+
 from jobpilot_agent.graphs.interview import ask_user_interrupt
 from jobpilot_agent.graphs.interview.interviewer_core import (
     InterviewerInput,
@@ -94,8 +96,9 @@ async def run_interview_turn(
             "metadata": {f"{stage}_round_{stage_round}_q_turn_id": q_turn_id},
         }
 
+    except GraphInterrupt:
+        raise  # Must propagate for LangGraph interrupt mechanism to work
     except Exception as exc:
-        # 不捕获 langgraph.errors.GraphInterrupt（它不是 Exception 的子类）
         log.error("run_interview_turn.error", stage=stage, error=str(exc))
         return {
             "errors": [{"stage": stage, "error": f"{type(exc).__name__}: {exc}"}],

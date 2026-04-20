@@ -5,9 +5,15 @@ pytest 全局 fixture 配置
 """
 
 import os
+from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 from fastapi.testclient import TestClient
+
+# Load real .env first so os.environ.setdefault() below uses the real key as the base.
+# Without this, subprocess tests inherit "test-dummy-key" and fail with 401.
+load_dotenv(Path(__file__).parent.parent / ".env", override=False)
 
 # 必须在 import jobpilot_agent 之前注入，避免 Settings 实例化失败
 os.environ.setdefault("LLM_API_KEY", "test-dummy-key")

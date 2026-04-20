@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from jobpilot_agent.evaluation.runners.scenario_a_runner import RunRecord
-
 
 ALL_SKILLS = ["tech_stack_extract", "gpa_check", "en_translate", "interview_rag", "portfolio_check", "github_scan"]
 

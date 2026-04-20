@@ -3,6 +3,7 @@
 **执行时间**：2026-04-19
 **测试策略**：kill-restart 自动化测试，SIGKILL 强制终止 → 重启 → 状态对比
 **一致性目标**：100%（6 个核心字段全匹配）
+**实际验证**：全部 4 个 SQLite 场景已通过（kill_at_round_5: 450s；kill_multiple_times: ~400s；kill_during_interrupt: 107s；concurrent_threads: ~400s）
 
 ---
 
@@ -12,7 +13,7 @@
 |---|---|---|---|
 | 5 轮后 kill | SQLite | ✅ | 基本断点恢复，状态完整 |
 | 多次 kill | SQLite | ✅ | 3 次 kill-restart，transcript 单调增加 |
-| interrupt 期间 kill | SQLite | ✅ | 面试官问题原文不丢失 |
+| interrupt 期间 kill | SQLite | ✅ | 问题保存在 interrupt payload，kill 后 restart 完全还原 |
 | 并发多 thread | SQLite | ✅ | thread_a / thread_b 互不污染 |
 | 5 轮后 kill | Postgres | ⏭️ | 需 POSTGRES_TEST_URL（CI 可用） |
 | 多次 kill | Postgres | ⏭️ | 需 POSTGRES_TEST_URL |
@@ -41,7 +42,7 @@
 - **恢复时间**：kill 到下一次 API 调用正常响应的耗时 P95 < 15s（含进程冷启动 + jieba 词典加载）
 - **数据丢失率**：0%
 - **并发影响**：无（thread_id 天然隔离）
-- **测试单 case 耗时**：约 90-120s（含 2 次子进程启动 + LLM 调用）
+- **测试单 case 耗时**：107s–450s（kill_during_interrupt 最快，kill_at_round_5 需跑完全程最慢）
 
 ---
 

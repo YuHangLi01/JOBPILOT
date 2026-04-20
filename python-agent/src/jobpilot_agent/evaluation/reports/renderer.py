@@ -148,7 +148,7 @@ def generate_report(
     main_records: "list[RunRecord]",
     baseline_records: "list[RunRecord]",
     output_path: str | Path,
-    model_name: str = "doubao-pro-4k",
+    model_name: str = "deepseek-chat",
     figures_rel_path: str = "figures",
 ) -> str:
     """生成完整评估报告 Markdown 并写入文件。
@@ -307,7 +307,7 @@ def generate_report(
 | 总 LLM Calls | {cost.main.total_llm_calls:,} | {cost.baseline.total_llm_calls:,} | {_pct(cost.llm_call_reduction_pct)} |
 | 估算费用（CNY） | ¥{cost.main.estimated_cost_cny:.2f} | ¥{cost.baseline.estimated_cost_cny:.2f} | {_pct(cost.cost_saved_pct)} |
 
-> 定价：¥{cost.token_price_per_1k_cny:.4f}/1K tokens（doubao-pro-4k 混合估算）
+> 定价：¥{cost.token_price_per_1k_cny:.4f}/1K tokens（deepseek-chat 混合估算）
 
 ![成本对比]({figures_rel_path}/cost_comparison_bar.png)
 

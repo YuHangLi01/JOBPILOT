@@ -19,6 +19,8 @@ def _build_env(
 ) -> dict[str, str]:
     """继承父进程环境，覆盖测试专用变量。"""
     env = dict(os.environ)
+    import pathlib
+    hf_cache = str(pathlib.Path.home() / ".cache" / "huggingface")
     env.update(
         {
             "CHECKPOINTER_BACKEND": checkpointer_backend,
@@ -27,8 +29,12 @@ def _build_env(
             "APP_ENV": "dev",
             # 避免 Milvus 连接超时
             "RETRIEVAL_FALLBACK_TO_CHROMA": "true",
-            # 关闭 jieba 日志噪音
             "PYTHONUNBUFFERED": "1",
+            # Ensure subprocess uses the same HuggingFace model cache as parent
+            "HF_HOME": hf_cache,
+            "TRANSFORMERS_CACHE": str(pathlib.Path(hf_cache) / "hub"),
+            "SENTENCE_TRANSFORMERS_HOME": str(pathlib.Path(hf_cache) / "sentence_transformers"),
+            # LLM config inherits from parent env (loaded from .env via tests/conftest.py)
         }
     )
     if sqlite_path:
@@ -52,6 +58,7 @@ class AgentProcess:
 
     async def start(self, wait_timeout: float = 45.0) -> None:
         env = _build_env(self.backend, self.sqlite_path, self.port)
+        self._logfile = open(f"/tmp/agent_proc_{self.port}.log", "w")
         self.process = subprocess.Popen(
             [
                 "uv", "run", "uvicorn", "jobpilot_agent.main:app",
@@ -59,14 +66,15 @@ class AgentProcess:
                 "--port", str(self.port),
             ],
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=self._logfile,
+            stderr=self._logfile,
         )
         await self._wait_healthy(timeout=wait_timeout)
 
     async def _wait_healthy(self, timeout: float) -> None:
         start = time.monotonic()
-        async with httpx.AsyncClient() as client:
+        # Bypass system proxies — 127.0.0.1 must go direct (HTTP_PROXY may be set in env)
+        async with httpx.AsyncClient(transport=httpx.AsyncHTTPTransport()) as client:
             while time.monotonic() - start < timeout:
                 if self.process and self.process.poll() is not None:
                     raise RuntimeError(

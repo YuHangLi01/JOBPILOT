@@ -133,7 +133,7 @@ def generate_report(
     pairs: list[ReplayPair],
     figures: dict[str, Path],
     output_path: Path,
-    model_name: str = "doubao-pro-4k + bge-m3",
+    model_name: str = "deepseek-chat + bge-m3",
 ) -> str:
     """生成 Markdown 格式的评估报告。"""
     pair_map = {p.pair_id: p for p in pairs}
